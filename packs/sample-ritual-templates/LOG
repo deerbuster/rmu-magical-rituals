@@ -1,0 +1,5 @@
+2026/06/18-13:12:32.579 4ec Recovering log #6
+2026/06/18-13:12:32.579 4ec Level-0 table #8: started
+2026/06/18-13:12:32.582 4ec Level-0 table #8: 1188 bytes OK
+2026/06/18-13:12:32.647 4ec Delete type=0 #6
+2026/06/18-13:12:32.647 4ec Delete type=3 #4

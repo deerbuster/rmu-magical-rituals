@@ -1,0 +1,102 @@
+<div class="rmumr-chat-card rmumr-chat-card-compact">
+  <header class="rmumr-chat-header">
+    <h2><i class="fas fa-hat-wizard"></i> {{data.name}}</h2>
+    <div class="rmumr-chat-result">
+      <strong>{{resolution.band}}</strong>
+      <span>Roll {{resolution.rollTotal}} + {{rmumrSigned resolution.modifierTotal}} = {{resolution.final}}</span>
+    </div>
+  </header>
+
+  <section class="rmumr-chat-summary">
+    <div><strong>Effect</strong><span>{{data.targetEffect}}</span></div>
+    <div><strong>Modifier</strong><span>{{rmumrSigned calculation.total}}</span></div>
+    <div><strong>PP</strong><span>{{calculation.ppTotal}}</span></div>
+    <div><strong>Blood</strong><span>{{calculation.blood.concussionDice}}d10{{#if calculation.blood.criticalSeverity}}, Crit {{calculation.blood.criticalSeverity}}{{/if}}</span></div>
+  </section>
+
+  <p class="rmumr-chat-resolution">{{resolution.text}}</p>
+
+  {{#if resolution.spellFailureRequired}}
+  <section class="rmumr-chat-alert rmumr-chat-failure-actions">
+    <div><strong>Spell Failure:</strong> Primary + Major Contributors{{#if resolution.spellFailurePPModifier}} <span class="rmumr-muted">({{resolution.spellFailurePPModifier}} PP added)</span>{{/if}}</div>
+    <div class="rmumr-chat-button-row">
+      {{#if affectedSpellFailureTargets.length}}
+        <button type="button" class="rmumr-chat-button" data-rmumr-action="roll-spell-failure" data-target-id="all">
+          <i class="fas fa-dice-d100"></i> Roll All
+        </button>
+        {{#each affectedSpellFailureTargets as |target|}}
+          <button type="button" class="rmumr-chat-button" data-rmumr-action="roll-spell-failure" data-target-id="{{target.id}}">
+            {{target.name}}
+          </button>
+        {{/each}}
+      {{else}}
+        <em>No eligible participants found.</em>
+      {{/if}}
+    </div>
+  </section>
+  {{/if}}
+
+  {{#if resolution.costApplication}}
+  <details class="rmumr-chat-details">
+    <summary>Applied Costs</summary>
+    {{#if resolution.costApplication.pp.length}}
+    <table>
+      <thead><tr><th>Actor</th><th>Required PP</th><th>Additional PP</th><th>Total</th><th>Applied</th></tr></thead>
+      <tbody>
+        {{#each resolution.costApplication.pp as |p|}}
+        <tr title="{{p.reason}}">
+          <td>{{p.actorName}}</td>
+          <td>{{p.requiredPP}}</td>
+          <td>{{p.additionalPP}}</td>
+          <td>{{p.totalPP}}</td>
+          <td>{{#if p.applied}}Yes: {{p.before}} → {{p.after}}{{else}}No{{/if}}</td>
+        </tr>
+        {{/each}}
+      </tbody>
+    </table>
+    {{/if}}
+    {{#if resolution.costApplication.blood.length}}
+    <table>
+      <thead><tr><th>Actor</th><th>Blood Roll</th><th>Damage</th><th>Crit Severity</th></tr></thead>
+      <tbody>
+        {{#each resolution.costApplication.blood as |b|}}
+        <tr><td>{{b.actorName}}</td><td>{{b.rollFormula}}</td><td>{{b.rollTotal}}</td><td>{{b.critSeverity}}</td></tr>
+        {{/each}}
+      </tbody>
+    </table>
+    {{/if}}
+  </details>
+  {{/if}}
+
+  {{#if resolution.rmuDecision}}
+  <section class="rmumr-chat-rmu">
+    <strong>RMU Maneuver:</strong> {{resolution.rmuDecision}}
+    {{#if resolution.rmuDescription}}<div>{{resolution.rmuDescription}}</div>{{/if}}
+  </section>
+  {{/if}}
+
+  {{#if resolution.unusualEvent}}<p><strong>Unusual Event:</strong> {{resolution.unusualEvent}}</p>{{/if}}
+
+  <details class="rmumr-chat-details">
+    <summary>Modifier Breakdown</summary>
+    <table>
+      <thead><tr><th>Modifier</th><th>Value</th></tr></thead>
+      <tbody>
+        {{#each calculation.rows as |r|}}
+        <tr title="{{r.detail}}"><td>{{r.label}}</td><td>{{rmumrSigned r.value}}</td></tr>
+        {{/each}}
+      </tbody>
+      <tfoot><tr><th>Total</th><th>{{rmumrSigned calculation.total}}</th></tr></tfoot>
+    </table>
+  </details>
+
+  <details class="rmumr-chat-details">
+    <summary>Requirements & Parameters</summary>
+    <ul>
+      <li>Endurance: {{calculation.endurance.label}}, difficulty {{calculation.endurance.difficulty}}</li>
+      <li>Spell Failure Required: {{#if resolution.spellFailureRequired}}Yes{{else}}No{{/if}}</li>
+      {{#if resolution.resistance}}<li>Resistance: SCR {{resolution.resistance.SCR}}, Attack Level {{resolution.resistance.attackLevel}}</li>{{/if}}
+      {{#each calculation.parameterSummary as |p|}}<li>{{p.key}}: {{p.value}}</li>{{/each}}
+    </ul>
+  </details>
+</div>

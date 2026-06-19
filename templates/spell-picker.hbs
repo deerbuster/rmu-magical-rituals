@@ -1,0 +1,69 @@
+<form class="rmu-ritual-form rmumr-spell-picker-form">
+  <div class="rmumr-status-bar">
+    <span class="rmumr-status-label">Selected Effects:</span>
+    <span class="rmumr-status-total">{{selected.length}}</span>
+  </div>
+
+  <section class="rmumr-panel">
+    <div class="rmumr-grid four rmumr-picker-grid">
+      <label>Realm
+        <select name="spellRealm">
+          {{#each realms as |r|}}<option value="{{r}}" {{rmumrSelected ../data.spellRealm r}}>{{r}}</option>{{/each}}
+        </select>
+      </label>
+      <label>Category
+        <select name="selectedSpellCategory">
+          <option value="">Choose a category...</option>
+          {{#each spellListCategories as |cat|}}<option value="{{cat.name}}" {{rmumrSelected ../data.selectedSpellCategory cat.name}}>{{cat.label}}</option>{{/each}}
+        </select>
+      </label>
+      <label>Spell List
+        <select name="selectedSpellList">
+          <option value="">Choose a spell list...</option>
+          {{#each spellLists as |list|}}<option value="{{list.name}}" {{rmumrSelected ../data.selectedSpellList list.name}}>{{list.label}}</option>{{/each}}
+        </select>
+      </label>
+      <label>Spell
+        <select name="selectedSpellId">
+          <option value="">Choose a spell...</option>
+          {{#each spellOptions as |s|}}
+            <option value="{{s.id}}" {{rmumrSelected ../data.selectedSpellId s.id}}>{{s.spellName}} ({{s.level}})</option>
+          {{/each}}
+        </select>
+      </label>
+    </div>
+
+    <p class="rmumr-muted">
+      Found {{spellSelector.categoryCount}} categories, {{spellSelector.listCount}} lists, and {{spellSelector.spellCount}} spells for this filter.
+      The Spell dropdown shows only spell names; the selected list and category remain visible above.
+    </p>
+
+    <div class="rmumr-actions">
+      <button type="button" data-action="addSpell"><i class="fas fa-plus"></i> Add Spell Effect</button>
+      <button type="button" data-action="useSpells"><i class="fas fa-check"></i> Use Selected Spells</button>
+      <button type="button" data-action="closePicker"><i class="fas fa-times"></i> Cancel</button>
+    </div>
+
+    <h2>Selected Spell Effects</h2>
+    {{#if selected.length}}
+      <table class="rmumr-selected-spell-table">
+        <thead><tr><th>Spell</th><th>Level</th><th>Realm</th><th>Category</th><th>List</th><th></th></tr></thead>
+        <tbody>
+          {{#each selected as |s i|}}
+            <tr>
+              <td>{{s.spellName}}</td>
+              <td>{{s.level}}</td>
+              <td>{{s.realm}}</td>
+              <td>{{s.categoryLabel}}</td>
+              <td>{{s.spellListName}}</td>
+              <td><button type="button" data-action="removeSpell" data-index="{{i}}"><i class="fas fa-trash"></i></button></td>
+            </tr>
+          {{/each}}
+        </tbody>
+      </table>
+      <p class="rmumr-muted">Rules note: spell levels are combined for the relative-level modifier, and each additional spell effect after the first applies -25.</p>
+    {{else}}
+      <p>No spell effects selected yet.</p>
+    {{/if}}
+  </section>
+</form>

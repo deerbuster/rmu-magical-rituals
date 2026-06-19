@@ -1,0 +1,53 @@
+{
+  "id": "rmu-magical-rituals",
+  "title": "RMU Magical Rituals",
+  "description": "Rolemaster Unified Magical Ritual workflow, modifier calculator, resolution helper, and template storage.",
+  "version": "1.0.0",
+  "compatibility": {
+    "minimum": "14",
+    "verified": "14"
+  },
+  "authors": [
+    {
+      "name": "William Franklin (aka Laendra)"
+    }
+  ],
+  "esmodules": [
+    "scripts/main.js"
+  ],
+  "styles": [
+    "styles/rituals.css"
+  ],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
+    }
+  ],
+  "packs": [
+    {
+      "name": "sample-ritual-templates",
+      "label": "Sample Ritual Templates",
+      "path": "packs/sample-ritual-templates.db",
+      "type": "JournalEntry",
+      "system": "rmu",
+      "ownership": {
+        "PLAYER": "OBSERVER",
+        "ASSISTANT": "OWNER"
+      }
+    }
+  ],
+  "relationships": {
+    "systems": [
+      {
+        "id": "rmu",
+        "type": "system",
+        "compatibility": {}
+      }
+    ]
+  },
+  "license": "MIT",
+  "manifest": "https://github.com/deerbuster/rmu-magical-rituals/releases/latest/download/module.json",
+  "download": "https://github.com/deerbuster/rmu-magical-rituals/releases/download/v0.4.8/rmu-magical-rituals.zip"
+}

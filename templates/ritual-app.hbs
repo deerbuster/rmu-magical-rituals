@@ -1,0 +1,398 @@
+<form class="rmu-ritual-form">
+  <nav class="rmumr-tabs">
+    {{#each tabs as |tab|}}
+      <button type="button" data-action="changeTab" data-tab="{{tab.[0]}}" class="{{#if (rmumrEq ../activeTab tab.[0])}}active{{/if}}">{{tab.[1]}}</button>
+    {{/each}}
+  </nav>
+
+  <div class="rmumr-status-bar" aria-live="polite">
+    <span class="rmumr-status-label">Total Modifier:</span>
+    <span class="rmumr-status-total">{{rmumrSigned calculation.total}}</span>
+    <span class="rmumr-status-resolution">{{resolutionSummary}}</span>
+  </div>
+
+  {{#if (rmumrEq activeTab "setup")}}
+  <section class="rmumr-panel rmumr-setup-panel rmumr-setup-037">
+    <div class="rmumr-inline-summary">
+      <span><strong>Realm</strong> <span class="rmumr-badge">{{data.casterRealm}}</span></span>
+      <span><strong>Level</strong> {{data.casterLevel}}</span>
+      <span><strong>Skill</strong> {{rmumrSigned data.baseSkillBonus}}</span>
+      <span><strong>Spell Level</strong> {{data.spellLevel}}</span>
+      <span><strong>Effects</strong> {{data.includedSpellEffects}}</span>
+      <span><strong>Knowledge</strong> {{spellKnowledgeLabel}}</span>
+    </div>
+
+    <div class="rmumr-setup-top rmumr-setup-top-compact">
+      <label>Ritual Name <input name="name" value="{{data.name}}"></label>
+      <label>Ritual Category
+        <select name="category">{{#each categories as |c|}}<option value="{{c}}" {{rmumrSelected ../data.category c}}>{{c}}</option>{{/each}}</select>
+      </label>
+    </div>
+
+    <div class="rmumr-setup-card rmumr-participant-manager rmumr-compact-card">
+      <div class="rmumr-section-header">
+        <strong>Participants</strong>
+      </div>
+
+      <div class="rmumr-add-row rmumr-add-row-tight rmumr-add-row-compact">
+        <select name="newParticipantActor">{{#each actors as |a|}}<option value="{{a.id}}">{{a.name}}</option>{{/each}}</select>
+        <select name="newParticipantRole">
+          <option value="major">Major Contributor</option>
+          <option value="minor">Minor Contributor</option>
+          <option value="setDressing">Set Dressing</option>
+        </select>
+        <button type="button" data-action="addParticipant" title="Add Participant"><i class="fas fa-plus"></i></button>
+      </div>
+
+      <div class="rmumr-participant-board">
+        <div class="rmumr-participant-board-head" aria-hidden="true">
+          <span>Participant</span>
+          <span>Role</span>
+          <span>Support Skill</span>
+          <span title="Power investment formula: +3 × floor(√PP). PP from this participant also marks their realm as used.">PP</span>
+          <span title="Spell adder charges can contribute ritual power if your table permits them.">Adder</span>
+          <span title="Blood concussion formula: 1d10 = +5, 2d10 = +10, 4d10 = +15, 8d10 = +20, 16d10 = +25, 32d10 = +30 max.">Blood d10</span>
+          <span title="Critical blood formula: +20 per severity, maximum +100.">Crit Sev</span>
+          <span></span>
+        </div>
+
+        {{#each data.participants as |p i|}}
+          <article class="rmumr-participant-row">
+            <div class="rmumr-participant-identity">
+              <strong>{{p.actorName}}</strong>
+              <span class="rmumr-badge">{{p.realm}}</span>
+              <div class="rmumr-participant-stats">
+                <span title="Full Magical Ritual skill bonus for this participant.">Ritual {{rmumrSigned p.ritualSkillBonus}}</span>
+                <span title="Ranks in the participant's matching Magical Ritual specialization.">Ritual Ranks {{p.ritualRanks}}</span>
+                <span title="Support skill uses the greater of selected support skill ranks or Magical Ritual ranks.">Used {{p.complementarySkillRanks}}</span>
+              </div>
+
+              <input type="hidden" name="participants.{{i}}.actorId" value="{{p.actorId}}">
+              <input type="hidden" name="participants.{{i}}.actorUuid" value="{{p.actorUuid}}">
+              <input type="hidden" name="participants.{{i}}.actorName" value="{{p.actorName}}">
+              <input type="hidden" name="participants.{{i}}.realm" value="{{p.realm}}">
+              <input type="hidden" name="participants.{{i}}.ritualSkillBonus" value="{{p.ritualSkillBonus}}">
+              <input type="hidden" name="participants.{{i}}.ritualRanks" value="{{p.ritualRanks}}">
+              <input type="hidden" name="participants.{{i}}.complementarySkillRanks" value="{{p.complementarySkillRanks}}">
+              <input type="hidden" name="participants.{{i}}.complementarySkillLabel" value="{{p.complementarySkillLabel}}">
+              <input type="hidden" name="participants.{{i}}.complementarySkillBonus" value="{{p.complementarySkillBonus}}">
+              <input type="hidden" name="participants.{{i}}.complementarySkillActualRanks" value="{{p.complementarySkillActualRanks}}">
+            </div>
+
+            <label class="rmumr-sr-label">Role
+              <select name="participants.{{i}}.role">
+                <option value="primary" {{rmumrSelected p.role "primary"}}>Primary</option>
+                <option value="major" {{rmumrSelected p.role "major"}}>Major</option>
+                <option value="minor" {{rmumrSelected p.role "minor"}}>Minor</option>
+                <option value="setDressing" {{rmumrSelected p.role "setDressing"}}>Set Dressing</option>
+              </select>
+            </label>
+
+            <label class="rmumr-sr-label">Support Skill
+              <select name="participants.{{i}}.complementarySkillName" class="rmumr-skill-select">
+                <option value="">None</option>
+                {{#each p.supportSkillGroups as |group|}}
+                  <optgroup label="{{group.label}}">
+                    {{#each group.skills as |skill|}}
+                      <option value="{{skill.key}}" {{rmumrSelected p.complementarySkillName skill.key}}>{{skill.label}} ({{skill.ranks}} ranks, {{rmumrSigned skill.bonus}})</option>
+                    {{/each}}
+                  </optgroup>
+                {{/each}}
+              </select>
+            </label>
+
+            <label class="rmumr-sr-label" title="Power investment formula: +3 × floor(√PP). PP from this participant also marks their realm as used.">PP
+              <input type="number" name="participants.{{i}}.ppContributed" value="{{p.ppContributed}}">
+            </label>
+
+            <label class="rmumr-sr-label" title="Spell adder charges can contribute ritual power if your table permits them.">Adder
+              <input type="number" name="participants.{{i}}.spellAdderChargesUsed" value="{{p.spellAdderChargesUsed}}">
+            </label>
+
+            <label class="rmumr-sr-label" title="Blood concussion formula: 1d10 = +5, 2d10 = +10, 4d10 = +15, 8d10 = +20, 16d10 = +25, 32d10 = +30 max.">Blood d10
+              <input type="number" name="participants.{{i}}.bloodDice" value="{{p.bloodDice}}">
+            </label>
+
+            <label class="rmumr-sr-label" title="Critical blood formula: +20 per severity, maximum +100.">Crit Sev
+              <input type="number" name="participants.{{i}}.criticalSeverityBloodInvestment" value="{{p.criticalSeverityBloodInvestment}}">
+            </label>
+
+            <button type="button" data-action="removeParticipant" data-index="{{i}}" title="Remove participant" class="rmumr-remove-participant"><i class="fas fa-trash"></i></button>
+          </article>
+        {{/each}}
+      </div>
+      <div class="rmumr-pp-summary">
+        <span><strong>Total PP/Adder:</strong> {{calculation.ppTotal}}</span>
+        <span><strong>Required PP:</strong> {{calculation.requiredPP}}</span>
+        <span><strong>Extra PP:</strong> {{calculation.additionalPP}}</span>
+        <span><strong>PP Bonus:</strong> {{rmumrSigned calculation.ppInvestmentModifier}}</span>
+      </div>
+      <p class="hint">Support Skill uses the better of the selected support skill ranks and the participant's Magical Ritual ranks. Minor contributors still provide PP only.</p>
+    </div>
+
+    <input type="hidden" name="spellRealm" value="{{data.spellRealm}}">
+    <input type="hidden" name="selectedSpellId" value="{{data.selectedSpellId}}">
+    <input type="hidden" name="selectedSpellLabel" value="{{data.selectedSpellLabel}}">
+    <input type="hidden" name="selectedSpellCategory" value="{{data.selectedSpellCategory}}">
+    <input type="hidden" name="selectedSpellList" value="{{data.selectedSpellList}}">
+
+    <div class="rmumr-setup-card rmumr-selected-spells rmumr-compact-card">
+      <div class="rmumr-section-header">
+        <strong>Selected Spell Effects</strong>
+        <button type="button" data-action="openSpellPicker"><i class="fas fa-book-sparkles"></i> Choose / Add Spells</button>
+      </div>
+      {{#if selectedSpells.length}}
+        <table class="rmumr-selected-spell-table rmumr-spell-table-037">
+          <thead><tr><th>Spell</th><th>Level</th><th>List</th></tr></thead>
+          <tbody>
+            {{#each selectedSpells as |s i|}}
+              <tr>
+                <td>{{s.spellName}} <span class="rmumr-badge">{{s.realm}}</span>
+                  <input type="hidden" name="selectedSpells.{{i}}.id" value="{{s.id}}">
+                  <input type="hidden" name="selectedSpells.{{i}}.spellName" value="{{s.spellName}}">
+                  <input type="hidden" name="selectedSpells.{{i}}.spellListName" value="{{s.spellListName}}">
+                  <input type="hidden" name="selectedSpells.{{i}}.categoryLabel" value="{{s.categoryLabel}}">
+                  <input type="hidden" name="selectedSpells.{{i}}.level" value="{{s.level}}">
+                  <input type="hidden" name="selectedSpells.{{i}}.realm" value="{{s.realm}}">
+                  <input type="hidden" name="selectedSpells.{{i}}.ritualListType" value="{{s.ritualListType}}">
+                  <input type="hidden" name="selectedSpells.{{i}}.knowledge" value="{{s.knowledge}}">
+                  <input type="hidden" name="selectedSpells.{{i}}.ranksBeyond" value="{{s.ranksBeyond}}">
+                </td>
+                <td>{{s.level}}</td>
+                <td>{{s.spellListName}}</td>
+              </tr>
+            {{/each}}
+          </tbody>
+        </table>
+        <p class="rmumr-muted">Combined spell level is used for relative level. Each spell effect after the first adds the ritual -25 modifier.</p>
+      {{else}}
+        <p class="rmumr-muted">No Spell Law spells selected. Use the picker, or enter a manual/custom effect below.</p>
+      {{/if}}
+    </div>
+
+    <div class="rmumr-setup-card rmumr-custom-compact">
+      <div class="rmumr-grid two">
+        <label>Target Spell/Effect <input name="targetEffect" value="{{data.targetEffect}}"></label>
+        <label>Knowledge Status
+          <select name="spellKnowledge">{{#each knowledge as |k|}}<option value="{{k.id}}" {{rmumrSelected ../data.spellKnowledge k.id}}>{{k.label}} ({{rmumrSigned k.mod}})</option>{{/each}}</select>
+        </label>
+      </div>
+      <input type="hidden" name="casterRealm" value="{{data.casterRealm}}">
+      <input type="hidden" name="casterLevel" value="{{data.casterLevel}}">
+      <input type="hidden" name="baseSkillBonus" value="{{data.baseSkillBonus}}">
+      <input type="hidden" name="spellLevel" value="{{data.spellLevel}}">
+      <input type="hidden" name="ranksBeyond" value="{{data.ranksBeyond}}">
+      <input type="hidden" name="includedSpellEffects" value="{{data.includedSpellEffects}}">
+    </div>
+  </section>
+  {{/if}}
+
+  {{#if (rmumrEq activeTab "investments")}}
+  <section class="rmumr-panel">
+    <div class="rmumr-grid two">
+      <fieldset><legend>Time Investment</legend><label>Duration <select name="timeInvestment.id">{{#each times as |t|}}<option value="{{t.id}}" {{rmumrSelected ../data.timeInvestment.id t.id}}>{{t.label}} ({{rmumrSigned t.mod}}){{#if t.endurance}} — Endurance: {{t.endurance}}{{/if}}</option>{{/each}}</select></label></fieldset>
+      <fieldset><legend>Ritual Items</legend>
+        <label>Tool Value GP <input type="number" name="itemInvestment.toolValueGp" value="{{data.itemInvestment.toolValueGp}}"></label>
+        <label>Tool Appropriateness <select name="itemInvestment.toolAppropriateness"><option value="less" {{rmumrSelected data.itemInvestment.toolAppropriateness "less"}}>Less than ideal</option><option value="generally" {{rmumrSelected data.itemInvestment.toolAppropriateness "generally"}}>Generally appropriate</option><option value="broadly" {{rmumrSelected data.itemInvestment.toolAppropriateness "broadly"}}>Broadly appropriate</option><option value="specifically" {{rmumrSelected data.itemInvestment.toolAppropriateness "specifically"}}>Specifically appropriate</option></select></label>
+        <label>Sacrifice Value SP <input type="number" name="itemInvestment.sacrificeValueSp" value="{{data.itemInvestment.sacrificeValueSp}}"></label>
+        <label>Sacrifice Appropriateness <select name="itemInvestment.sacrificeAppropriateness"><option value="less" {{rmumrSelected data.itemInvestment.sacrificeAppropriateness "less"}}>Less than ideal</option><option value="generally" {{rmumrSelected data.itemInvestment.sacrificeAppropriateness "generally"}}>Generally appropriate</option><option value="broadly" {{rmumrSelected data.itemInvestment.sacrificeAppropriateness "broadly"}}>Broadly appropriate</option><option value="specifically" {{rmumrSelected data.itemInvestment.sacrificeAppropriateness "specifically"}}>Specifically appropriate</option></select></label>
+      </fieldset>
+    </div>
+  </section>
+  {{/if}}
+
+  {{#if (rmumrEq activeTab "parameters")}}
+  <section class="rmumr-panel rmumr-parameters-panel">
+    <div class="rmumr-param-header">
+      <div>
+        <strong>Spell Parameter Extension</strong>
+        <p class="hint">Use only when the ritual changes a spell beyond its normal parameters. Formula details are available in the tooltips.</p>
+      </div>
+      <div class="rmumr-param-total">
+        <span>Parameter Modifier</span>
+        <strong>{{rmumrSigned calculation.parameterTotal}}</strong>
+      </div>
+    </div>
+
+    <div class="rmumr-param-layout">
+      <div class="rmumr-param-column">
+        <fieldset class="rmumr-param-card">
+          <legend>Limits & Severity</legend>
+
+          <label class="rmumr-param-row" title="Each doubling of weight limit: -10.">
+            <span>Weight Limit Doublings <i class="fas fa-circle-question"></i></span>
+            <input type="number" min="0" step="1" name="parameterExtensions.weightDoublings" value="{{data.parameterExtensions.weightDoublings}}">
+            <strong>{{rmumrSigned (rmumrParamMod "weight" data.parameterExtensions.weightDoublings)}}</strong>
+          </label>
+
+          <label class="rmumr-param-row" title="Each critical severity step altered, such as A to B: -30.">
+            <span>Critical Severity Steps <i class="fas fa-circle-question"></i></span>
+            <input type="number" min="0" step="1" name="parameterExtensions.criticalSeveritySteps" value="{{data.parameterExtensions.criticalSeveritySteps}}">
+            <strong>{{rmumrSigned (rmumrParamMod "critical" data.parameterExtensions.criticalSeveritySteps)}}</strong>
+          </label>
+        </fieldset>
+
+        <fieldset class="rmumr-param-card">
+          <legend>Area & Range</legend>
+
+          <label class="rmumr-param-row" title="Increasing area of effect: -20 for each doubling.">
+            <span>Area Increase Doublings <i class="fas fa-circle-question"></i></span>
+            <input type="number" min="0" step="1" name="parameterExtensions.areaIncreaseDoublings" value="{{data.parameterExtensions.areaIncreaseDoublings}}">
+            <strong>{{rmumrSigned (rmumrParamMod "areaIncrease" data.parameterExtensions.areaIncreaseDoublings)}}</strong>
+          </label>
+
+          <label class="rmumr-param-row" title="Increasing spell range: -15 for each doubling.">
+            <span>Range Increase Doublings <i class="fas fa-circle-question"></i></span>
+            <input type="number" min="0" step="1" name="parameterExtensions.rangeDoublings" value="{{data.parameterExtensions.rangeDoublings}}">
+            <strong>{{rmumrSigned (rmumrParamMod "range" data.parameterExtensions.rangeDoublings)}}</strong>
+          </label>
+
+          <label class="rmumr-param-row rmumr-toggle-row" title="Decreasing area of effect: -10 maximum.">
+            <input type="checkbox" name="parameterExtensions.areaDecrease" {{rmumrChecked data.parameterExtensions.areaDecrease}}>
+            <span>Decrease Area of Effect <i class="fas fa-circle-question"></i></span>
+            <strong>-10 max</strong>
+          </label>
+        </fieldset>
+      </div>
+
+      <div class="rmumr-param-column">
+        <fieldset class="rmumr-param-card">
+          <legend>Damage & Healing</legend>
+
+          <label class="rmumr-param-row" title="Concussion damage/healing: x2 = -10, x3 = -20, x4 = -30, x5 = -40 maximum.">
+            <span>Hits Multiplier <i class="fas fa-circle-question"></i></span>
+            <select name="parameterExtensions.concussionMultiplier">
+              <option value="1" {{rmumrSelected data.parameterExtensions.concussionMultiplier 1}}>Normal ×1</option>
+              <option value="2" {{rmumrSelected data.parameterExtensions.concussionMultiplier 2}}>×2</option>
+              <option value="3" {{rmumrSelected data.parameterExtensions.concussionMultiplier 3}}>×3</option>
+              <option value="4" {{rmumrSelected data.parameterExtensions.concussionMultiplier 4}}>×4</option>
+              <option value="5" {{rmumrSelected data.parameterExtensions.concussionMultiplier 5}}>×5</option>
+            </select>
+            <strong>{{rmumrSigned (rmumrParamMod "concussion" data.parameterExtensions.concussionMultiplier)}}</strong>
+          </label>
+        </fieldset>
+
+        <fieldset class="rmumr-param-card">
+          <legend>Duration</legend>
+
+          <label class="rmumr-param-row" title="Each step change on the duration ladder: -20.">
+            <span>Duration Ladder Steps <i class="fas fa-circle-question"></i></span>
+            <input type="number" min="0" step="1" name="parameterExtensions.durationSteps" value="{{data.parameterExtensions.durationSteps}}">
+            <strong>{{rmumrSigned (rmumrParamMod "duration" data.parameterExtensions.durationSteps)}}</strong>
+          </label>
+
+          <label class="rmumr-param-row rmumr-toggle-row" title="Changing a spell from no duration to 1 round: -50.">
+            <input type="checkbox" name="parameterExtensions.noDurationToOneRound" {{rmumrChecked data.parameterExtensions.noDurationToOneRound}}>
+            <span>No Duration → 1 Round <i class="fas fa-circle-question"></i></span>
+            <strong>-50</strong>
+          </label>
+
+          <label class="rmumr-param-row rmumr-toggle-row" title="Changing concentration to 1 round per level: -20.">
+            <input type="checkbox" name="parameterExtensions.concentrationToRoundsPerLevel" {{rmumrChecked data.parameterExtensions.concentrationToRoundsPerLevel}}>
+            <span>Concentration → 1 Round/Level <i class="fas fa-circle-question"></i></span>
+            <strong>-20</strong>
+          </label>
+
+          <label class="rmumr-param-row rmumr-toggle-row" title="Removing a concentration limitation: -25.">
+            <input type="checkbox" name="parameterExtensions.removeConcentration" {{rmumrChecked data.parameterExtensions.removeConcentration}}>
+            <span>Remove Concentration <i class="fas fa-circle-question"></i></span>
+            <strong>-25</strong>
+          </label>
+        </fieldset>
+      </div>
+    </div>
+
+    <label class="rmumr-self-rule" title="This has no numeric modifier by itself; it constrains who can receive or share the self-only effect.">
+      <input type="checkbox" name="parameterExtensions.selfSpellExpanded" {{rmumrChecked data.parameterExtensions.selfSpellExpanded}}>
+      <span>Self spell expanded: only major contributors may be included.</span>
+    </label>
+  </section>
+  {{/if}}
+
+  {{#if (rmumrEq activeTab "modifiers")}}
+  <section class="rmumr-panel">
+<h3>Circumstances</h3>
+    {{#each data.circumstances as |c i|}}
+      <div class="rmumr-row">
+        <input name="circumstances.{{i}}.label" value="{{c.label}}">
+        <input type="number" name="circumstances.{{i}}.value" value="{{c.value}}">
+        <input name="circumstances.{{i}}.detail" value="{{c.detail}}">
+        <button type="button" data-action="removeCircumstance" data-index="{{i}}"><i class="fas fa-trash"></i></button>
+      </div>
+    {{/each}}
+    <button type="button" data-action="addCircumstance"><i class="fas fa-plus"></i> Add Manual Modifier</button>
+    <h3>Complete Breakdown</h3>
+    <table><thead><tr><th>Group</th><th>Modifier</th><th>Value</th><th>Detail</th></tr></thead><tbody>
+      {{#each calculation.rows as |r|}}<tr><td>{{r.group}}</td><td>{{r.label}}</td><td>{{rmumrSigned r.value}}</td><td>{{r.detail}}</td></tr>{{/each}}
+    </tbody><tfoot><tr><th colspan="2">Total</th><th>{{rmumrSigned calculation.total}}</th><th></th></tr></tfoot></table>
+  </section>
+  {{/if}}
+
+  {{#if (rmumrEq activeTab "resolution")}}
+  <section class="rmumr-panel rmumr-resolution-panel">
+    <div class="rmumr-resolution-summary">
+      <h3>Resolution Summary</h3>
+      <div class="rmumr-summary-grid">
+        <div><span>Modifier</span><strong>{{rmumrSigned calculation.total}}</strong></div>
+        <div><span>Threshold</span><strong>{{resolutionSummary}}</strong></div>
+        <div><span>Endurance</span><strong>{{calculation.endurance.label}}</strong><small>{{calculation.endurance.difficulty}}</small></div>
+        <div><span>Additional PP</span><strong>{{calculation.ppTotal}}</strong></div>
+        <div><span>Blood</span><strong>{{calculation.blood.concussionDice}}d10</strong><small>Crit {{calculation.blood.criticalSeverity}}</small></div>
+      </div>
+      <label class="rmumr-resistible-row">
+        <input type="checkbox" name="resistible" {{rmumrChecked data.resistible}}>
+        <span>Ritual effect is resistible <em>(SCR 50, Attack Level = Primary Caster Level)</em></span>
+      </label>
+    </div>
+
+    <div class="rmumr-template-card">
+      <div class="rmumr-section-header">
+        <strong>Templates</strong>
+      </div>
+      <div class="rmumr-template-row">
+        <label class="rmumr-template-select">Saved Template
+          <select name="savedTemplateId">
+            <option value="">Choose saved template...</option>
+            {{#each savedTemplates as |t|}}
+              <option value="{{t.id}}" {{rmumrSelected ../data.savedTemplateId t.id}}>{{t.name}}</option>
+            {{/each}}
+          </select>
+        </label>
+        <button type="button" data-action="loadTemplate"><i class="fas fa-folder-open"></i> Load</button>
+        <button type="button" data-action="deleteTemplate"><i class="fas fa-trash"></i> Delete</button>
+      </div>
+      <div class="rmumr-template-actions">
+        <button type="button" data-action="saveTemplate"><i class="fas fa-save"></i> Save Current Template</button>
+        <button type="button" data-action="cloneTemplate"><i class="fas fa-copy"></i> Clone Current Template</button>
+      </div>
+    </div>
+
+    <label class="rmumr-notes-label">Ritual Notes
+      <textarea name="notes" rows="5" placeholder="Ritual notes">{{data.notes}}</textarea>
+    </label>
+
+    <div class="rmumr-resolution-actions">
+      <button type="button" class="rmumr-roll-button" data-action="rollRitual"><i class="fas fa-dice-d100"></i> Roll Ritual</button>
+    </div>
+
+    {{#if resolution}}
+      <div class="rmumr-result">
+        <h2>{{resolution.band}}</h2>
+        <p>Roll {{resolution.rollTotal}} + {{resolution.modifierTotal}} = <strong>{{resolution.final}}</strong></p>
+        <p>{{resolution.text}}</p>
+        {{#if resolution.spellFailureRequired}}
+          <p><strong>Spell failure applies to:</strong>
+            {{#if resolution.spellFailureParticipants.length}}
+              {{#each resolution.spellFailureParticipants as |name|}}{{name}}{{#unless @last}}, {{/unless}}{{/each}}
+            {{else}}
+              Primary caster and major contributors
+            {{/if}}
+          </p>
+        {{/if}}
+        {{#if resolution.unusualEvent}}<p>{{resolution.unusualEvent}}</p>{{/if}}
+        {{#if resolution.rmuDecision}}<p><strong>RMU Maneuver:</strong> {{resolution.rmuDecision}}</p>{{#if resolution.rmuDescription}}<p>{{resolution.rmuDescription}}</p>{{/if}}{{/if}}
+      </div>
+    {{/if}}
+  </section>
+  {{/if}}
+</form>
