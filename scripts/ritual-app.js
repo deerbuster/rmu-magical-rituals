@@ -142,6 +142,8 @@ export class RitualSpellPicker extends BaseApp {
         knowledge: selected.knowledge,
         ranksBeyond: selected.ranksBeyond,
         uuid: selected.uuid,
+        duration: selected.duration,
+        effects: selected.effects,
         listType: selected.listType,
         listProfession: selected.listProfession
       });
@@ -205,6 +207,7 @@ export class RitualApp extends BaseApp {
       removeParticipant: RitualApp.#removeParticipant,
       calculate: RitualApp.#calculate,
       rollRitual: RitualApp.#rollRitual,
+      applySpell: RitualApp.#applySpell,
       saveTemplate: RitualApp.#saveTemplate,
       loadTemplate: RitualApp.#loadTemplate,
       deleteTemplate: RitualApp.#deleteTemplate,
@@ -548,6 +551,8 @@ export class RitualApp extends BaseApp {
         ranksBeyond: match.ranksBeyond ?? old.ranksBeyond,
         ranks: match.ranks ?? old.ranks,
         uuid: match.uuid ?? old.uuid,
+        duration: match.duration ?? old.duration,
+        effects: match.effects ?? old.effects,
         listType: match.listType ?? old.listType,
         listProfession: match.listProfession ?? old.listProfession
       };
@@ -616,6 +621,8 @@ export class RitualApp extends BaseApp {
       knowledge: selected.knowledge,
       ranksBeyond: selected.ranksBeyond,
       uuid: selected.uuid,
+      duration: selected.duration,
+      effects: selected.effects,
       listType: selected.listType,
       listProfession: selected.listProfession
     }];
@@ -841,11 +848,17 @@ export class RitualApp extends BaseApp {
 
   static async #rollRitual() {
     this.#readForm();
+    await this.#refreshSelectedSpellsForPrimary();
     this.lastCalculation = RitualCalculator.calculate(this.data, this.#settings());
     this.lastResolution = await RitualResolution.roll(this.data, this.lastCalculation);
     this.lastResolution.costApplication = await this.#applyRitualCosts(this.lastCalculation);
     await RitualResolution.sendChat(this.data, this.lastCalculation, this.lastResolution);
     this.render({ force: false });
+  }
+
+  static async #applySpell(event, target) {
+    if (!this.lastResolution?.success) return ui.notifications.warn("Only a successful ritual can apply a spell.");
+    await RitualResolution.applySpellToTargets(this.data, this.lastResolution, Number(target.dataset.spellIndex));
   }
 
   async #applyRitualCosts(calculation) {
@@ -919,7 +932,7 @@ export class RitualApp extends BaseApp {
     this.render({ force: false });
   }
 
-  static #loadTemplate(event, target) {
+  static async #loadTemplate(event, target) {
     // Do not rely solely on the last rendered state; read the current select value.
     const select = this.element?.querySelector("[name='savedTemplateId']");
     const id = select?.value || this.data.savedTemplateId || "";
@@ -936,6 +949,7 @@ export class RitualApp extends BaseApp {
     this.data = foundry.utils.mergeObject(RitualCalculator.defaultData(this.actor), loaded, { inplace: false });
     this.#normalizeCollections(this.data);
     this.#coerceNumbers(this.data);
+    await this.#refreshSelectedSpellsForPrimary();
     this.lastResolution = null;
     ui.notifications.info(`Loaded ritual template: ${this.data.name || "Unnamed Ritual"}`);
     this.render({ force: true });

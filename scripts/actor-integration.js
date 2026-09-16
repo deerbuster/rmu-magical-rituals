@@ -438,6 +438,8 @@ export class RitualActorAdapter {
       ranksBeyond: knowledge.ranksBeyond,
       ranks: knowledge.ranks,
       uuid: listUuid || "",
+      duration: spell?.duration ?? spell?._modifiedDuration?.duration ?? "",
+      effects: Array.isArray(spell?.effects) ? foundry.utils.deepClone(spell.effects) : [],
       label: spellName,
       source
     };
@@ -445,7 +447,7 @@ export class RitualActorAdapter {
 
   static #isSpellListDocument(doc) {
     const type = this.#norm(doc?.type).replaceAll("-", "").replaceAll("_", "");
-    const sys = doc?.system ?? {};
+    const sys = doc?._source?.system ?? doc?.system ?? {};
     if (["spelllist", "spelllistitem"].includes(type)) return true;
     if (Array.isArray(sys.spells) || Array.isArray(sys.spellList) || Array.isArray(sys.levels)) return true;
     if (sys.listType || sys.realms || sys.realm || sys.profession) {
@@ -456,7 +458,12 @@ export class RitualActorAdapter {
   }
 
   static #spellsFromListDocument(doc) {
-    const sys = doc?.system ?? {};
+    const prepared = doc?.system ?? {};
+    const stored = doc?._source?.system ?? {};
+    const size = value => Array.isArray(value) ? value.length : value && typeof value === "object" ? Object.keys(value).length : 0;
+    const preparedRaw = prepared.spells ?? prepared.spellList ?? prepared.levels;
+    const storedRaw = stored.spells ?? stored.spellList ?? stored.levels;
+    const sys = size(storedRaw) > size(preparedRaw) ? stored : prepared;
     const raw = sys.spells ?? sys.spellList ?? sys.levels ?? [];
     if (Array.isArray(raw)) return raw;
 
@@ -483,6 +490,10 @@ export class RitualActorAdapter {
       }
     }
     return out;
+  }
+
+  static spellListEntries(doc) {
+    return this.#spellsFromListDocument(doc);
   }
 
 
@@ -559,7 +570,7 @@ export class RitualActorAdapter {
             if (!this.#isSpellListDocument(doc)) continue;
 
             listsRead += 1;
-            const sys = doc.system ?? {};
+            const sys = doc._source?.system ?? doc.system ?? {};
             for (const spell of this.#spellsFromListDocument(doc)) {
               add(this.#makeSpellOption({
                 actor: null,

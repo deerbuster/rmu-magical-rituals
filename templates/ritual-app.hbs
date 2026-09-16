@@ -380,6 +380,10 @@
         <h2>{{resolution.band}}</h2>
         <p>Roll {{resolution.rollTotal}} + {{resolution.modifierTotal}} = <strong>{{resolution.final}}</strong></p>
         <p>{{resolution.text}}</p>
+        {{#each resolution.spellDurations as |spell|}}
+          <p><strong>{{spell.name}} duration:</strong> {{spell.label}} ({{spell.totalLabel}})</p>
+          {{#if spell.supported}}<button type="button" data-action="applySpell" data-spell-index="{{@index}}">Apply {{spell.name}} to targeted tokens</button>{{/if}}
+        {{/each}}
         {{#if resolution.spellFailureRequired}}
           <p><strong>Spell failure applies to:</strong>
             {{#if resolution.spellFailureParticipants.length}}

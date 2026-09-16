@@ -1,4 +1,6 @@
 import { MODULE_ID, RitualCalculator } from "./ritual-calculator.js";
+import { ritualSpellDuration } from "./ritual-duration.js";
+import { RitualActorAdapter } from "./actor-integration.js";
 
 export class RitualResolution {
   static async roll(data, calculation) {
@@ -38,7 +40,7 @@ export class RitualResolution {
       resolution = {
         band: "Absolute Failure",
         success: false,
-        text: "Catastrophic failure. Roll spell failure for the primary caster and all major contributors; add total ritual PP to each spell failure roll.",
+        text: "Catastrophic failure. Make one spell failure roll and apply the result to the primary caster and all major contributors; add total ritual PP to that roll.",
         spellFailureRequired: true,
         spellFailurePPModifier: RitualCalculator.getTotalPP(data)
       };
@@ -46,7 +48,7 @@ export class RitualResolution {
       resolution = {
         band: "Failure",
         success: false,
-        text: "Ritual fails. Roll spell failure for the primary caster and all major contributors.",
+        text: "Ritual fails. Make one spell failure roll and apply the result to the primary caster and all major contributors.",
         spellFailureRequired: true,
         spellFailurePPModifier: 0
       };
@@ -54,7 +56,7 @@ export class RitualResolution {
       resolution = {
         band: "Partial Success",
         success: true,
-        text: "Ritual succeeds, but roll spell failure for the primary caster and all major contributors; ignore PP-loss and effect-loss results.",
+        text: "Ritual succeeds, but make one spell failure roll and apply the result to the primary caster and all major contributors; ignore PP-loss and effect-loss results.",
         spellFailureRequired: true,
         spellFailurePPModifier: 0
       };
@@ -71,6 +73,13 @@ export class RitualResolution {
     }
 
     if (natural === 66) resolution.unusualEvent = "UM 66: Unusual Event. Ritual disturbs Essence; GM should determine side effect.";
+    if (resolution.success) {
+      const spells = Array.isArray(data.selectedSpells) ? data.selectedSpells : Object.values(data.selectedSpells ?? {});
+      resolution.spellDurations = spells.map(spell => ({
+        name: spell.spellName || spell.name || "Spell",
+        ...ritualSpellDuration(spell, data.parameterExtensions?.durationSteps, data.casterLevel)
+      })).filter(entry => entry.label);
+    }
     if (data.resistible) {
       resolution.resistance = {
         SCR: 50,
@@ -120,9 +129,81 @@ export class RitualResolution {
       root.querySelectorAll("[data-rmumr-action='roll-spell-failure']").forEach(button => {
         button.addEventListener("click", ev => this.#onRollSpellFailure(ev, message));
       });
+      root.querySelectorAll("[data-rmumr-action='apply-spell']").forEach(button => {
+        button.addEventListener("click", ev => this.#onApplySpell(ev, message));
+      });
     };
 
     Hooks.on("renderChatMessageHTML", handler);
+  }
+
+  static async #onApplySpell(event, message) {
+    event.preventDefault();
+    const resolution = message.getFlag(MODULE_ID, "resolution") ?? {};
+    const data = message.getFlag(MODULE_ID, "template") ?? {};
+    await this.applySpellToTargets(data, resolution, Number(event.currentTarget.dataset.spellIndex), message.uuid);
+  }
+
+  static async applySpellToTargets(data, resolution, index, origin = null) {
+    if (!resolution.success) return ui.notifications.warn("Only a successful ritual can apply a spell.");
+    const duration = resolution.spellDurations?.[index];
+    if (!duration?.supported) return ui.notifications.warn("This spell duration cannot be applied automatically.");
+    const targets = Array.from(game.user?.targets ?? []);
+    if (!targets.length) return ui.notifications.warn("Target one or more tokens before applying the ritual spell.");
+    const selected = Array.isArray(data.selectedSpells) ? data.selectedSpells : Object.values(data.selectedSpells ?? {});
+    let spell = selected[index];
+    if (!spell) return ui.notifications.warn("The ritual spell could not be found.");
+    if (!spell.effects?.length) {
+      const options = await RitualActorAdapter.getSpellOptions(this.#primaryActor(data));
+      spell = options.find(opt => opt.id === spell.id)
+        ?? options.find(opt => opt.spellName === spell.spellName && opt.spellListName === spell.spellListName && Number(opt.level) === Number(spell.level))
+        ?? spell;
+    }
+    const sourceEffects = Array.isArray(spell.effects) ? spell.effects : [];
+    if (!sourceEffects.length) return ui.notifications.warn(`${duration.name} has no automatic RMU effect data to apply.`);
+    const systemPath = game.system?.id === "rmu" ? "systems/rmu" : `systems/${game.system?.id}`;
+    const conditions = await import(`/${systemPath}/module/conditions/conditions.js`);
+    const creators = {
+      armoring: conditions.createArmoringEffect,
+      "skill-bonus": conditions.createBonusEffect,
+      "stat-bonus": conditions.createBonusEffect,
+      invisible: conditions.createInvisibleEffect,
+      "damage-multiplier": conditions.createDamageMultiplierEffect,
+      "action-points": conditions.createActionPointEffect,
+      "adrenal-speed": conditions.createAdrenalSpeedEffect,
+      "adrenal-strength": conditions.createAdrenalStrengthEffect,
+      "adrenal-focus": conditions.createAdrenalFocusEffect,
+      "adrenal-defense": conditions.createAdrenalDefenseEffect
+    };
+    const unsupported = sourceEffects.filter(effect => typeof creators[effect.effect] !== "function");
+    if (unsupported.length) return ui.notifications.warn(`Automatic application is unavailable for ${unsupported.map(effect => effect.effect).join(", ")}.`);
+    const effectData = sourceEffects.map(effect => {
+      const timed = { ...foundry.utils.deepClone(effect), name: duration.name, seconds: duration.seconds, units: "seconds" };
+      delete timed.rounds;
+      delete timed.durationByCasterLevelBy;
+      const created = creators[effect.effect](timed);
+      created.origin = origin ?? this.#primaryActor(data)?.uuid;
+      created.flags = foundry.utils.mergeObject(created.flags ?? {}, {
+        [MODULE_ID]: { ritualMessageUuid: origin, duration: duration.label, spellName: duration.name }
+      });
+      return created;
+    });
+    let applied = 0;
+    const errors = [];
+    for (const token of targets) {
+      const actor = token.actor;
+      if (!actor) continue;
+      try {
+        const created = await actor.createEmbeddedDocuments("ActiveEffect", foundry.utils.deepClone(effectData));
+        if (created?.length) applied += 1;
+      } catch (err) {
+        console.error(`${MODULE_ID} | Could not apply ${duration.name} to ${actor.name}`, err);
+        errors.push(actor.name);
+      }
+    }
+    if (applied) ui.notifications.info(`Applied ${duration.name} (${duration.totalLabel}) to ${applied} target${applied === 1 ? "" : "s"}.`);
+    if (errors.length) ui.notifications.error(`Could not apply the spell to: ${errors.join(", ")}.`);
+    else if (!applied) ui.notifications.warn("No targeted actor accepted the spell effect.");
   }
 
   static async #onRollSpellFailure(event, message) {
@@ -132,42 +213,43 @@ export class RitualResolution {
 
     const flagData = message.getFlag(MODULE_ID, "template") ?? {};
     const resolution = message.getFlag(MODULE_ID, "resolution") ?? {};
-    const targetId = button.dataset.targetId;
     const targets = this.#spellFailureTargets(flagData, resolution);
-    const selected = targetId === "all" ? targets : targets.filter(t => t.id === targetId);
 
-    if (!selected.length) {
+    if (!targets.length) {
       ui.notifications.warn("No eligible ritual participants were found for spell failure.");
       return;
     }
 
-    for (const target of selected) {
-      await this.#rollSpellFailureForTarget(target, flagData, resolution);
-    }
+    await this.#rollSpellFailureForTargets(targets, flagData, resolution);
 
     const rolled = foundry.utils.deepClone(message.getFlag(MODULE_ID, "spellFailureRolled") ?? {});
-    for (const target of selected) rolled[target.id] = true;
+    rolled.all = true;
+    for (const target of targets) rolled[target.id] = true;
     await message.setFlag(MODULE_ID, "spellFailureRolled", rolled);
 
     button.classList.add("rmumr-disabled");
     button.setAttribute("disabled", "disabled");
-    if (targetId === "all") {
-      button.closest(".chat-message")?.querySelectorAll("[data-rmumr-action='roll-spell-failure']").forEach(b => {
-        b.classList.add("rmumr-disabled");
-        b.setAttribute("disabled", "disabled");
-      });
-    }
+    button.closest(".chat-message")?.querySelectorAll("[data-rmumr-action='roll-spell-failure']").forEach(b => {
+      b.classList.add("rmumr-disabled");
+      b.setAttribute("disabled", "disabled");
+    });
   }
 
-  static async #rollSpellFailureForTarget(target, data, resolution) {
-    const token = this.#targetToken(target);
-    if (!token?.actor) {
-      ui.notifications.warn(`Could not find an active token for ${target.name}; place or select a token before rolling spell failure.`);
-      return;
+  static async #rollSpellFailureForTargets(targets, data, resolution) {
+    const valid = [];
+    for (const target of targets) {
+      const token = this.#targetToken(target);
+      if (!token?.actor) {
+        ui.notifications.warn(`Could not find an active token for ${target.name}; place or select a token before rolling spell failure.`);
+        continue;
+      }
+      valid.push({ target, token });
     }
 
+    if (!valid.length) return;
+
     const totalModifier = Number(resolution?.spellFailurePPModifier ?? 0) || 0;
-    const realm = this.#spellFailureRealm(target, data);
+    const realm = this.#spellFailureRealm(valid[0].target, data);
     const spellType = this.#spellFailureType(data);
 
     let failureRoll;
@@ -182,6 +264,12 @@ export class RitualResolution {
 
     await this.#showDiceSoNice(failureRoll);
 
+    for (const entry of valid) {
+      await this.#applySpellFailureResult(entry.target, entry.token, data, resolution, failureRoll, totalModifier, realm, spellType);
+    }
+  }
+
+  static async #applySpellFailureResult(target, token, data, resolution, failureRoll, totalModifier, realm, spellType) {
     try {
       const systemPath = game.system?.path ?? "systems/rmu";
       const spellFailureModule = await import(`/${systemPath}/module/rmu/spell-casting/spell-failure.js`);
@@ -206,8 +294,8 @@ export class RitualResolution {
         <div class="rmumr-chat-card rmumr-chat-card-compact">
           <h3>Ritual Spell Failure: ${target.name}</h3>
           <p><strong>Realm:</strong> ${realm} <strong>Type:</strong> ${spellType}</p>
-          <p><strong>Roll:</strong> ${failureRoll.total} ${totalModifier ? `(includes ${totalModifier >= 0 ? "+" : ""}${totalModifier})` : ""}</p>
-          <p>Native RMU spell failure table could not be resolved. Use the RMU Spell Failure table manually.</p>
+          <p><strong>Shared Roll:</strong> ${failureRoll.total} ${totalModifier ? `(includes ${totalModifier >= 0 ? "+" : ""}${totalModifier})` : ""}</p>
+          <p>Native RMU spell failure table could not be resolved. Use the RMU Spell Failure table manually and apply this shared result to this participant.</p>
         </div>`
     });
   }
@@ -228,7 +316,8 @@ export class RitualResolution {
   }
 
   static #spellFailureRealm(target, data) {
-    const realm = String(target.realm || data.spellRealm || data.casterRealm || "Channeling");
+    const selected = Array.isArray(data.selectedSpells) ? data.selectedSpells[0] : null;
+    const realm = String(selected?.realm || data.spellRealm || data.casterRealm || target.realm || "Channeling");
     if (/essence/i.test(realm)) return "Essence";
     if (/mental/i.test(realm)) return "Mentalism";
     if (/arcane/i.test(realm)) return "Arcane";

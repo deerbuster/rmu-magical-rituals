@@ -15,24 +15,32 @@
   </section>
 
   <p class="rmumr-chat-resolution">{{resolution.text}}</p>
+  {{#if resolution.spellDurations.length}}
+  <section class="rmumr-chat-summary">
+    {{#each resolution.spellDurations as |spell|}}
+    <div><strong>{{spell.name}} duration</strong><span>{{spell.label}} ({{spell.totalLabel}})</span></div>
+    {{#if spell.supported}}
+    <div><button type="button" class="rmumr-chat-button" data-rmumr-action="apply-spell" data-spell-index="{{@index}}">Apply to targeted tokens</button></div>
+    {{/if}}
+    {{/each}}
+  </section>
+  {{/if}}
 
   {{#if resolution.spellFailureRequired}}
   <section class="rmumr-chat-alert rmumr-chat-failure-actions">
-    <div><strong>Spell Failure:</strong> Primary + Major Contributors{{#if resolution.spellFailurePPModifier}} <span class="rmumr-muted">({{resolution.spellFailurePPModifier}} PP added)</span>{{/if}}</div>
-    <div class="rmumr-chat-button-row">
-      {{#if affectedSpellFailureTargets.length}}
-        <button type="button" class="rmumr-chat-button" data-rmumr-action="roll-spell-failure" data-target-id="all">
-          <i class="fas fa-dice-d100"></i> Roll All
-        </button>
-        {{#each affectedSpellFailureTargets as |target|}}
-          <button type="button" class="rmumr-chat-button" data-rmumr-action="roll-spell-failure" data-target-id="{{target.id}}">
-            {{target.name}}
-          </button>
-        {{/each}}
-      {{else}}
-        <em>No eligible participants found.</em>
-      {{/if}}
+    <div>
+      <strong>Spell Failure:</strong> one shared roll applied to Primary + Major Contributors{{#if resolution.spellFailurePPModifier}} <span class="rmumr-muted">({{resolution.spellFailurePPModifier}} PP added on Absolute Failure)</span>{{/if}}
     </div>
+    {{#if affectedSpellFailureTargets.length}}
+      <div class="rmumr-muted">Affected: {{#each affectedSpellFailureTargets as |target|}}{{target.name}}{{#unless @last}}, {{/unless}}{{/each}}</div>
+      <div class="rmumr-chat-button-row">
+        <button type="button" class="rmumr-chat-button" data-rmumr-action="roll-spell-failure">
+          <i class="fas fa-dice-d100"></i> Roll Shared Spell Failure
+        </button>
+      </div>
+    {{else}}
+      <em>No eligible participants found.</em>
+    {{/if}}
   </section>
   {{/if}}
 
