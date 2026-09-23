@@ -82,6 +82,26 @@ export class RitualStorage {
     });
   }
 
+  static async promptImportFile() {
+    return new Promise(resolve => {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = ".json,application/json";
+      input.addEventListener("change", async () => {
+        const file = input.files?.[0];
+        if (!file) return resolve(null);
+        try {
+          resolve(this.importTemplate(await file.text()));
+        } catch (err) {
+          console.error(`${MODULE_ID} | Unable to import ritual JSON`, err);
+          ui.notifications.error(`Could not import ${file.name}: ${err.message}`);
+          resolve(null);
+        }
+      }, { once: true });
+      input.click();
+    });
+  }
+
   static downloadTemplate(data) {
     const blob = new Blob([this.exportTemplate(data)], { type: "application/json" });
     const a = document.createElement("a");

@@ -1152,7 +1152,7 @@
 
 .rmumr-template-row {
   display: grid;
-  grid-template-columns: minmax(16rem, 1fr) auto auto;
+  grid-template-columns: minmax(16rem, 1fr) auto auto auto;
   gap: 0.5rem;
   align-items: end;
 }

@@ -211,6 +211,7 @@ export class RitualApp extends BaseApp {
       saveTemplate: RitualApp.#saveTemplate,
       loadTemplate: RitualApp.#loadTemplate,
       deleteTemplate: RitualApp.#deleteTemplate,
+      exportSavedTemplate: RitualApp.#exportSavedTemplate,
       exportTemplate: RitualApp.#exportTemplate,
       importTemplate: RitualApp.#importTemplate,
       cloneTemplate: RitualApp.#cloneTemplate,
@@ -583,24 +584,29 @@ export class RitualApp extends BaseApp {
     this.data.casterRealm = RitualActorAdapter.getRealm(primaryActor);
     this.data.baseSkillBonus = RitualActorAdapter.getRitualSkill(primaryActor, this.data.category);
 
-    await this.#refreshSelectedSpellsForPrimary(primaryActor);
-
-    const primary = this.data.participants.find(p => p.role === "primary");
-    if (primary) {
-      const previous = foundry.utils.deepClone(primary);
-      const refreshed = RitualActorAdapter.buildParticipant(primaryActor, "primary", this.data.category);
-      Object.assign(primary, refreshed, {
+    for (const participant of this.data.participants ?? []) {
+      if (!participant || participant.role === "setDressing") continue;
+      const actor = participant.actorUuid && typeof fromUuidSync === "function"
+        ? fromUuidSync(participant.actorUuid)
+        : game.actors?.get(participant.actorId);
+      if (!actor) continue;
+      const previous = foundry.utils.deepClone(participant);
+      const refreshed = RitualActorAdapter.buildParticipant(actor, participant.role, this.data.category);
+      Object.assign(participant, refreshed, {
+        role: previous.role,
         ppContributed: previous.ppContributed ?? refreshed.ppContributed,
         spellAdderChargesUsed: previous.spellAdderChargesUsed ?? refreshed.spellAdderChargesUsed,
         bloodDice: previous.bloodDice ?? refreshed.bloodDice,
         criticalSeverityBloodInvestment: previous.criticalSeverityBloodInvestment ?? refreshed.criticalSeverityBloodInvestment,
         complementarySkillName: previous.complementarySkillName ?? "",
-        complementarySkillLabel: previous.complementarySkillLabel ?? "",
-        complementarySkillActualRanks: previous.complementarySkillActualRanks ?? 0,
-        complementarySkillBonus: previous.complementarySkillBonus ?? 0,
-        complementarySkillRanks: previous.complementarySkillRanks ?? 0
+        complementarySkillLabel: "",
+        complementarySkillActualRanks: 0,
+        complementarySkillBonus: 0,
+        complementarySkillRanks: 0
       });
     }
+    this.#refreshParticipantActorData();
+    await this.#refreshSelectedSpellsForPrimary(primaryActor);
   }
 
   async #applySelectedSpell() {
@@ -949,7 +955,8 @@ export class RitualApp extends BaseApp {
     this.data = foundry.utils.mergeObject(RitualCalculator.defaultData(this.actor), loaded, { inplace: false });
     this.#normalizeCollections(this.data);
     this.#coerceNumbers(this.data);
-    await this.#refreshSelectedSpellsForPrimary();
+    await this.#refreshPrimaryCasterDerived();
+    this.lastCalculation = RitualCalculator.calculate(this.data, this.#settings());
     this.lastResolution = null;
     ui.notifications.info(`Loaded ritual template: ${this.data.name || "Unnamed Ritual"}`);
     this.render({ force: true });
@@ -967,15 +974,55 @@ export class RitualApp extends BaseApp {
     this.render({ force: true });
   }
 
+  static #exportSavedTemplate() {
+    const select = this.element?.querySelector("[name='savedTemplateId']");
+    const id = select?.value || this.data.savedTemplateId || "";
+    if (!id) return ui.notifications.warn("Choose a saved ritual template first.");
+    const actor = this.#templateActor();
+    if (!actor) return ui.notifications.warn(game.i18n.localize("RMUMR.NoPrimaryCaster"));
+    const template = RitualStorage.listTemplates(actor).find(t => String(t.id) === String(id));
+    if (!template) return ui.notifications.warn("Saved ritual template was not found for the current primary caster.");
+    RitualStorage.downloadTemplate(template);
+  }
+
   static #exportTemplate() {
     this.#readForm();
     RitualStorage.downloadTemplate(this.data);
   }
 
   static async #importTemplate() {
-    const imported = await RitualStorage.promptImport();
+    const imported = await RitualStorage.promptImportFile();
     if (imported) {
+      delete imported.savedAt;
+      imported.id = foundry.utils.randomID();
+      imported.savedTemplateId = "";
       this.data = foundry.utils.mergeObject(RitualCalculator.defaultData(this.actor), imported, { inplace: false });
+      this.#normalizeCollections(this.data);
+      this.#coerceNumbers(this.data);
+
+      // A shared file may contain actor IDs from another world. Bind its primary
+      // participant to the actor whose ritual window is open.
+      if (this.actor) {
+        let primary = this.data.participants.find(p => p?.role === "primary");
+        if (!primary) {
+          primary = RitualActorAdapter.buildParticipant(this.actor, "primary", this.data.category);
+          this.data.participants.unshift(primary);
+        } else {
+          primary.actorId = this.actor.id;
+          primary.actorUuid = this.actor.uuid;
+          primary.actorName = this.actor.name;
+        }
+      }
+      await this.#refreshPrimaryCasterDerived();
+      this.lastCalculation = RitualCalculator.calculate(this.data, this.#settings());
+      this.lastResolution = null;
+      const actor = this.#templateActor();
+      if (!actor) return ui.notifications.warn(game.i18n.localize("RMUMR.NoPrimaryCaster"));
+      const record = await RitualStorage.saveTemplate(actor, this.data);
+      this.data.id = record.id;
+      this.data.savedAt = record.savedAt;
+      this.data.savedTemplateId = record.id;
+      ui.notifications.info(`Imported and saved ritual: ${this.data.name || "Unnamed Ritual"}`);
       this.render({ force: true });
     }
   }

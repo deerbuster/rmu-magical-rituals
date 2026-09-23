@@ -1,5 +1,24 @@
 import { MODULE_ID } from "./ritual-calculator.js";
 
+export function spellOptionKey(opt = {}) {
+  return `${opt.spellName ?? ""}|${opt.spellListName ?? ""}|${opt.level ?? ""}|${opt.realm ?? ""}`;
+}
+
+export function mergeSpellOptionGroups(...groups) {
+  const options = [];
+  const seen = new Set();
+  for (const group of groups) {
+    for (const opt of group ?? []) {
+      if (!opt?.spellName) continue;
+      const key = spellOptionKey(opt);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      options.push(opt);
+    }
+  }
+  return options;
+}
+
 export class RitualActorAdapter {
   static #spellCompendiumCache = null;
   static #spellCompendiumCachePromise = null;
@@ -520,73 +539,50 @@ export class RitualActorAdapter {
 
       const add = opt => {
         if (!opt?.spellName) return;
-        const key = `${opt.spellName}|${opt.spellListName}|${opt.level}|${opt.realm}`;
+        const key = spellOptionKey(opt);
         if (seen.has(key)) return;
         seen.add(key);
         options.push(opt);
       };
 
-      for (const pack of game.packs ?? []) {
-        try {
-          if (pack.documentName !== "Item") continue;
-          const collection = String(pack.collection ?? "");
-          const meta = pack.metadata ?? {};
-          const label = String(meta.label ?? "").toLowerCase();
-          const looksRMU =
-            meta.packageName === "rmu" ||
-            meta.system === "rmu" ||
-            collection.startsWith("rmu.") ||
-            label.includes("core law") ||
-            label.includes("spell law") ||
-            label.includes("treasure law") ||
-            game.system?.id === "rmu";
-          if (!looksRMU) continue;
+      const packs = Array.from(game.packs ?? []).filter(pack => {
+        if (pack.documentName !== "Item") return false;
+        const collection = String(pack.collection ?? "");
+        const meta = pack.metadata ?? {};
+        return meta.system === "rmu" || meta.packageName === "rmu" || collection.startsWith("rmu.") || collection.startsWith("rmu-");
+      });
+      packsRead = packs.length;
 
-          packsRead += 1;
-          const index = await pack.getIndex({
-            fields: [
-              "type", "name", "system.realms", "system.realm", "system.listType",
-              "system.profession", "system.spells", "system.spellList", "system.levels"
-            ]
-          });
+      // Foundry and RMU support a type-filtered batch read. Run independent packs
+      // in parallel and never fall back to opening unrelated Item documents.
+      const batches = await Promise.allSettled(packs.map(async pack => ({
+        pack,
+        documents: await pack.getDocuments({ type: "spell-list" })
+      })));
 
-          let candidates = index.filter(e => {
-            const type = String(e.type ?? "").toLowerCase().replaceAll("-", "").replaceAll("_", "");
-            return type.includes("spelllist") ||
-              e.system?.listType ||
-              e.system?.realms ||
-              e.system?.realm ||
-              e.system?.spells ||
-              e.system?.spellList ||
-              e.system?.levels;
-          });
-
-          if (!candidates.length && (collection.startsWith("rmu.") || game.system?.id === "rmu")) {
-            candidates = Array.from(index);
+      for (const batch of batches) {
+        if (batch.status !== "fulfilled") {
+          console.warn(`${MODULE_ID} | Unable to preload an RMU spell compendium`, batch.reason);
+          continue;
+        }
+        const { documents } = batch.value;
+        for (const doc of documents ?? []) {
+          if (!this.#isSpellListDocument(doc)) continue;
+          listsRead += 1;
+          const sys = doc._source?.system ?? doc.system ?? {};
+          for (const spell of this.#spellsFromListDocument(doc)) {
+            add(this.#makeSpellOption({
+              actor: null,
+              spell,
+              listName: doc.name,
+              listUuid: doc.uuid,
+              listRealm: sys.realms ?? sys.realm,
+              listType: sys.listType ?? sys.type,
+              listProfession: sys.profession,
+              source: "compendium",
+              actorHasList: false
+            }));
           }
-
-          for (const entry of candidates) {
-            const doc = await pack.getDocument(entry._id);
-            if (!this.#isSpellListDocument(doc)) continue;
-
-            listsRead += 1;
-            const sys = doc._source?.system ?? doc.system ?? {};
-            for (const spell of this.#spellsFromListDocument(doc)) {
-              add(this.#makeSpellOption({
-                actor: null,
-                spell,
-                listName: doc.name,
-                listUuid: doc.uuid,
-                listRealm: sys.realms ?? sys.realm,
-                listType: sys.listType ?? sys.type,
-                listProfession: sys.profession,
-                source: "compendium",
-                actorHasList: false
-              }));
-            }
-          }
-        } catch (err) {
-          console.warn(`${MODULE_ID} | Unable to preload spell compendium ${pack.collection}`, err);
         }
       }
 
@@ -615,16 +611,18 @@ export class RitualActorAdapter {
   }
 
   static async getSpellOptions(actor = null) {
-    const options = [];
-    const seen = new Set();
+    const actorOptions = [];
+    const addActorOption = opt => { if (opt?.spellName) actorOptions.push(opt); };
 
-    const add = opt => {
-      if (!opt?.spellName) return;
-      const key = `${opt.spellName}|${opt.spellListName}|${opt.level}|${opt.realm}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      options.push(opt);
-    };
+    /*
+     * The complete compendium catalog must win duplicate resolution. RMU actor
+     * sheets expose a rank-filtered prepared list and may label a Cleric list as
+     * merely "Base". When actor options won first, every learned spell displaced
+     * its canonical "Cleric Base" entry, so knowing more spells made fewer appear
+     * under Cleric Base.
+     */
+    const cached = await this.preloadSpellCompendiums();
+    const catalogOptions = cached.map(opt => this.#withActorSpellContext(opt, actor));
 
     // Preferred live RMU source: a currently rendered RMU actor sheet has already
     // prepared _castableSpells/_spellGroups using RMU's native spell builder.
@@ -633,7 +631,7 @@ export class RitualActorAdapter {
       for (const group of groups) {
         for (const list of group.spellLists ?? []) {
           for (const spell of list.spells ?? []) {
-            add(this.#makeSpellOption({
+            addActorOption(this.#makeSpellOption({
               actor,
               spell,
               listName: list.spellListName ?? spell.spellList,
@@ -648,7 +646,7 @@ export class RitualActorAdapter {
       }
 
       for (const spell of app?._castableSpells ?? []) {
-        add(this.#makeSpellOption({
+        addActorOption(this.#makeSpellOption({
           actor,
           spell,
           listName: spell.spellList,
@@ -666,7 +664,7 @@ export class RitualActorAdapter {
       const sys = item.system ?? {};
       const listName = item.name ?? sys.name;
       for (const spell of this.#spellsFromListDocument(item)) {
-        add(this.#makeSpellOption({
+        addActorOption(this.#makeSpellOption({
           actor,
           spell,
           listName,
@@ -680,16 +678,8 @@ export class RitualActorAdapter {
       }
     }
 
-    /*
-     * Compendium spell lists are expensive to read because many RMU packs do not
-     * expose all useful spell data in the index. They are now loaded once at
-     * table startup and cached. Opening the ritual UI only re-applies
-     * actor-specific knowledge/list-type context to those cached entries.
-     */
-    const cached = await this.preloadSpellCompendiums();
-    for (const opt of cached) add(this.#withActorSpellContext(opt, actor));
-
-    return options.sort((a, b) => a.label.localeCompare(b.label));
+    return mergeSpellOptionGroups(catalogOptions, actorOptions)
+      .sort((a, b) => a.label.localeCompare(b.label));
   }
 
 
