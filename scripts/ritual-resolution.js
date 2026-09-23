@@ -161,49 +161,61 @@ export class RitualResolution {
     }
     const sourceEffects = Array.isArray(spell.effects) ? spell.effects : [];
     if (!sourceEffects.length) return ui.notifications.warn(`${duration.name} has no automatic RMU effect data to apply.`);
-    const systemPath = game.system?.id === "rmu" ? "systems/rmu" : `systems/${game.system?.id}`;
-    const conditions = await import(`/${systemPath}/module/conditions/conditions.js`);
-    const creators = {
-      armoring: conditions.createArmoringEffect,
-      "skill-bonus": conditions.createBonusEffect,
-      "stat-bonus": conditions.createBonusEffect,
-      invisible: conditions.createInvisibleEffect,
-      "damage-multiplier": conditions.createDamageMultiplierEffect,
-      "action-points": conditions.createActionPointEffect,
-      "adrenal-speed": conditions.createAdrenalSpeedEffect,
-      "adrenal-strength": conditions.createAdrenalStrengthEffect,
-      "adrenal-focus": conditions.createAdrenalFocusEffect,
-      "adrenal-defense": conditions.createAdrenalDefenseEffect
-    };
-    const unsupported = sourceEffects.filter(effect => typeof creators[effect.effect] !== "function");
-    if (unsupported.length) return ui.notifications.warn(`Automatic application is unavailable for ${unsupported.map(effect => effect.effect).join(", ")}.`);
-    const effectData = sourceEffects.map(effect => {
-      const timed = { ...foundry.utils.deepClone(effect), name: duration.name, seconds: duration.seconds, units: "seconds" };
+
+    const primaryActor = this.#primaryActor(data);
+    const casterToken = Array.from(canvas.tokens?.placeables ?? []).find(token => token.actor?.id === primaryActor?.id)
+      ?? primaryActor?.getActiveTokens?.()[0]
+      ?? null;
+    if (!casterToken) {
+      return ui.notifications.warn("Place the primary caster's token on the active scene before applying ritual spell effects.");
+    }
+
+    const timedEffects = sourceEffects.map(effect => {
+      const timed = {
+        ...foundry.utils.deepClone(effect),
+        name: duration.name,
+        seconds: duration.seconds,
+        units: "seconds"
+      };
       delete timed.rounds;
       delete timed.durationByCasterLevelBy;
-      const created = creators[effect.effect](timed);
-      created.origin = origin ?? this.#primaryActor(data)?.uuid;
-      created.flags = foundry.utils.mergeObject(created.flags ?? {}, {
-        [MODULE_ID]: { ritualMessageUuid: origin, duration: duration.label, spellName: duration.name }
-      });
-      return created;
+      return timed;
     });
-    let applied = 0;
-    const errors = [];
-    for (const token of targets) {
-      const actor = token.actor;
-      if (!actor) continue;
-      try {
-        const created = await actor.createEmbeddedDocuments("ActiveEffect", foundry.utils.deepClone(effectData));
-        if (created?.length) applied += 1;
-      } catch (err) {
-        console.error(`${MODULE_ID} | Could not apply ${duration.name} to ${actor.name}`, err);
-        errors.push(actor.name);
-      }
-    }
-    if (applied) ui.notifications.info(`Applied ${duration.name} (${duration.totalLabel}) to ${applied} target${applied === 1 ? "" : "s"}.`);
-    if (errors.length) ui.notifications.error(`Could not apply the spell to: ${errors.join(", ")}.`);
-    else if (!applied) ui.notifications.warn("No targeted actor accepted the spell effect.");
+
+    /*
+     * Hand the effects to RMU's normal spell-target workflow. RMU creates its
+     * standard utility card for each target; that card's Apply action uses the
+     * system ownership checks and SocketLib GM proxy instead of requiring this
+     * player to create ActiveEffect documents directly on another actor.
+     */
+    const systemPath = game.system?.id === "rmu" ? "systems/rmu" : `systems/${game.system?.id}`;
+    const { processSCRTargets } = await import(`/${systemPath}/module/rmu/chat/render-scr.js`);
+    const nativeSpell = {
+      ...foundry.utils.deepClone(spell),
+      name: duration.name,
+      _translatedName: duration.name,
+      _translatedDescription: spell.description ?? "",
+      spellType: spell.spellType ?? "U",
+      effects: timedEffects,
+      _castingLevel: Number(data.casterLevel ?? 1),
+      _modifiedDuration: { duration: duration.totalLabel, temporalFactor: 1 },
+      _modifiedRange: { range: "target" }
+    };
+    const nativeResult = {
+      resultCode: 1,
+      resistibleSpell: false,
+      effectName: "",
+      spell: nativeSpell
+    };
+    await processSCRTargets(
+      casterToken,
+      nativeSpell,
+      nativeResult,
+      targets.map(token => ({ tokenId: token.id })),
+      timedEffects,
+      { apply: true, renderData: { token: casterToken, scr: nativeResult } }
+    );
+    ui.notifications.info(`Created RMU effect application card${targets.length === 1 ? "" : "s"} for ${duration.name} (${duration.totalLabel}).`);
   }
 
   static async #onRollSpellFailure(event, message) {

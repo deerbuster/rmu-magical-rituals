@@ -92,7 +92,7 @@ export class RitualActorAdapter {
 
   static getEndurance(actor) { return Number(this.getFirst(actor, "endurance", 0)) || 0; }
 
-  static #skillMatches(value, wantedName, wantedSpec = "") {
+  static #skillMatches(value, wantedName, wantedSpec = "", exactSpecialization = false) {
     const name = this.#norm(value?.system?.name ?? value?.name);
     const category = this.#norm(value?.system?.category ?? value?.category);
     const spec = this.#norm(value?.system?.specialization ?? value?.specialization);
@@ -100,7 +100,7 @@ export class RitualActorAdapter {
     const wspec = this.#norm(wantedSpec);
     const nameMatches = name === wanted || value?.name && this.#norm(value.name) === wanted;
     const categoryMatches = !wanted || category === wanted || name === wanted;
-    const specMatches = !wspec || spec === wspec;
+    const specMatches = exactSpecialization ? spec === wspec : (!wspec || spec === wspec);
     return (nameMatches || categoryMatches) && specMatches;
   }
 
@@ -155,7 +155,7 @@ export class RitualActorAdapter {
     return fallback;
   }
 
-  static findOwnedOrPreparedSkill(actor, skillName, specialization = "") {
+  static findOwnedOrPreparedSkill(actor, skillName, specialization = "", exactSpecialization = false) {
     if (!actor) return null;
     const wanted = this.#norm(skillName);
     const wantedSpec = this.#norm(specialization);
@@ -171,7 +171,7 @@ export class RitualActorAdapter {
       const values = Array.isArray(pool) ? pool : Object.values(pool);
       for (const value of values) {
         if (!value) continue;
-        if (this.#skillMatches(value, wanted, wantedSpec)) return value;
+        if (this.#skillMatches(value, wanted, wantedSpec, exactSpecialization)) return value;
       }
     }
 
@@ -186,7 +186,7 @@ export class RitualActorAdapter {
       if (!value || typeof value !== "object") return null;
       if (seen.has(value)) return null;
       seen.add(value);
-      if (this.#skillMatches(value, wanted, wantedSpec)) return value;
+      if (this.#skillMatches(value, wanted, wantedSpec, exactSpecialization)) return value;
       const children = Array.isArray(value) ? value : Object.values(value);
       for (const child of children) {
         const found = walk(child);
@@ -200,18 +200,36 @@ export class RitualActorAdapter {
       if (found) return found;
     }
 
-    if (wantedSpec) return this.findOwnedOrPreparedSkill(actor, skillName, "");
+    if (wantedSpec && !exactSpecialization) return this.findOwnedOrPreparedSkill(actor, skillName, "");
     return null;
   }
 
   static getRitualSkill(actor, specialization = "") {
-    const skill = this.findOwnedOrPreparedSkill(actor, "Magical Ritual", specialization);
+    const skill = this.findOwnedOrPreparedSkill(actor, "Magical Ritual", specialization, true);
     if (skill) return this.#skillValue(skill, 0);
+
+    /*
+     * RMU prepares an undeveloped, unspecialized row for skills which require
+     * a specialization. That row already contains the correct zero-rank
+     * calculation (normally -25 rank bonus plus the skill's stat bonus).
+     * Never substitute a different trained Magical Ritual specialization.
+     */
+    const undeveloped = this.findOwnedOrPreparedSkill(actor, "Magical Ritual", "", true);
+    if (undeveloped) return this.#skillValue(undeveloped, -25);
+
+    // Older/unprepared actors may expose only trained specializations. Their
+    // stat component is shared, so use it with the untrained -25 rank bonus.
+    const related = this.findOwnedOrPreparedSkill(actor, "Magical Ritual", "");
+    const statBonus = Number(
+      related?._statBonus ??
+      related?.system?._statBonus
+    );
+    if (Number.isFinite(statBonus)) return -25 + statBonus;
     return Number(this.getFirst(actor, "skill", 0)) || 0;
   }
 
   static getRitualRanks(actor, specialization = "") {
-    const skill = this.findOwnedOrPreparedSkill(actor, "Magical Ritual", specialization);
+    const skill = this.findOwnedOrPreparedSkill(actor, "Magical Ritual", specialization, true);
     return skill ? this.#skillRanks(skill, 0) : 0;
   }
 
@@ -316,8 +334,24 @@ export class RitualActorAdapter {
     return 0;
   }
 
+  static #effectiveListType(listType, listProfession, actor) {
+    const raw = String(listType ?? "").trim();
+    const isBase = raw.toLowerCase().includes("base");
+    const alchemistProfessions = ["adept", "sanctifier", "psychographer"];
+    const listIsAlchemy = alchemistProfessions.includes(this.#norm(listProfession));
+    const casterIsAlchemist = alchemistProfessions.includes(this.#norm(this.getActorProfession(actor)));
+    let alchemyAvailableAsClosed = false;
+    try {
+      alchemyAvailableAsClosed = game.settings.get("rmu", "optionalAlchemyAvailableAsClosed") === true;
+    } catch {
+      // The RMU setting may not be registered during isolated tests or startup.
+    }
+    if (alchemyAvailableAsClosed && isBase && listIsAlchemy && !casterIsAlchemist) return "Closed";
+    return raw;
+  }
+
   static #mapListType(listType, listProfession, actor) {
-    const raw = String(listType ?? "").toLowerCase();
+    const raw = this.#effectiveListType(listType, listProfession, actor).toLowerCase();
     const profession = this.#norm(listProfession);
     const actorProfession = this.#norm(this.getActorProfession(actor));
 
@@ -432,7 +466,8 @@ export class RitualActorAdapter {
     const rawRealm = spell?._realms ?? spell?.realm ?? listRealm ?? "Channeling";
     const rawListType = spell?.listType ?? listType ?? "";
     const realm = this.#displayRealm(rawRealm, listRealm, listProfession);
-    const categoryLabel = this.#listCategoryLabel(rawListType, listProfession, realm);
+    const effectiveListType = this.#effectiveListType(rawListType, listProfession, actor);
+    const categoryLabel = this.#listCategoryLabel(effectiveListType, listProfession, realm);
     const ritualListType = this.#mapListType(rawListType, listProfession, actor);
     const knowledge = this.#knowledgeFor(actor, listName, level, actorHasList);
     const id = [
@@ -519,6 +554,8 @@ export class RitualActorAdapter {
   static #withActorSpellContext(opt, actor = null) {
     const copy = foundry.utils.deepClone(opt ?? {});
     const knowledge = this.#knowledgeFor(actor, copy.spellListName, copy.level, false);
+    const effectiveListType = this.#effectiveListType(copy.listType, copy.listProfession, actor);
+    copy.categoryLabel = this.#listCategoryLabel(effectiveListType, copy.listProfession, copy.realm);
     copy.ritualListType = this.#mapListType(copy.listType, copy.listProfession, actor);
     copy.knowledge = knowledge.knowledge;
     copy.ranksBeyond = knowledge.ranksBeyond;
