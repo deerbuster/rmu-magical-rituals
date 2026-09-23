@@ -3,11 +3,37 @@ import { MODULE_ID, RitualCalculator } from "./ritual-calculator.js";
 export class RitualStorage {
   static flagPath = "templates";
 
+  /**
+   * Return the persistent ritual model without actor-derived UI caches.
+   * Actor skill lists are rebuilt whenever a ritual is loaded.
+   */
+  static prepareTemplate(data) {
+    const record = foundry.utils.deepClone(data ?? RitualCalculator.defaultData());
+    record.participants = Array.from(record.participants ?? []).map(participant => {
+      const {
+        supportSkills,
+        supportSkillGroups,
+        ritualSkillBonus,
+        ritualRanks,
+        complementarySkillLabel,
+        complementarySkillActualRanks,
+        complementarySkillBonus,
+        complementarySkillRanks,
+        ...persistent
+      } = participant ?? {};
+      return persistent;
+    });
+    delete record.newParticipantActor;
+    delete record.newParticipantRole;
+    delete record.savedTemplateId;
+    return record;
+  }
+
   static async saveTemplate(actor, data) {
     if (!actor) throw new Error("An actor is required to save a ritual template.");
     const templates = foundry.utils.deepClone(actor.getFlag(MODULE_ID, this.flagPath) ?? []);
     const id = data.id || foundry.utils.randomID();
-    const record = { ...foundry.utils.deepClone(data), id, savedAt: new Date().toISOString() };
+    const record = { ...this.prepareTemplate(data), id, savedAt: new Date().toISOString() };
     const index = templates.findIndex(t => t.id === id);
     if (index >= 0) templates[index] = record;
     else templates.push(record);
@@ -32,23 +58,14 @@ export class RitualStorage {
   }
 
   static exportTemplate(data) {
+    const template = this.prepareTemplate(data);
+    delete template.id;
+    delete template.savedAt;
     return JSON.stringify({
       flags: {
         rmuMagicalRituals: {
-          version: data.version ?? "1.0.0",
-          category: data.category,
-          spellLevel: data.spellLevel,
-          spellRealm: data.spellRealm,
-          spellListType: data.spellListType,
-          spellKnowledge: data.spellKnowledge,
-          participants: data.participants ?? [],
-          ppInvestment: data.ppInvestment ?? {},
-          timeInvestment: data.timeInvestment ?? {},
-          bloodInvestment: data.bloodInvestment ?? {},
-          itemInvestment: data.itemInvestment ?? {},
-          parameterExtensions: data.parameterExtensions ?? {},
-          notes: data.notes ?? "",
-          fullTemplate: data
+          schemaVersion: 2,
+          fullTemplate: template
         }
       }
     }, null, 2);
