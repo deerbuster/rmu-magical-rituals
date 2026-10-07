@@ -863,7 +863,7 @@ export class RitualApp extends BaseApp {
   }
 
   static async #applySpell(event, target) {
-    if (!this.lastResolution?.success) return ui.notifications.warn("Only a successful ritual can apply a spell.");
+    if (!RitualResolution.canApplySpell(this.lastResolution)) return ui.notifications.warn("Only a Partial Success or better can apply a ritual spell.");
     await RitualResolution.applySpellToTargets(this.data, this.lastResolution, Number(target.dataset.spellIndex));
   }
 

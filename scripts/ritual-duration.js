@@ -19,6 +19,20 @@ function unitIndex(text) {
 export function ritualSpellDuration(spell, steps = 0, casterLevel = 1) {
   const source = String(spell?.duration ?? "").trim();
   if (!source) return null;
+  const spellName = String(spell?.spellName ?? spell?.name ?? "").trim().toLowerCase();
+  const listName = String(spell?.spellListName ?? spell?.spellList ?? "").trim().toLowerCase();
+  if (source.toLowerCase() === "varies" && listName === "protections" && spellName === "resistance iii") {
+    return {
+      source,
+      label: "Varies (Prayer I duration)",
+      totalLabel: "Choose when applying",
+      seconds: null,
+      supported: true,
+      choiceRequired: "protections-resistance-iii",
+      perLevel: true,
+      level: Math.max(1, Math.trunc(Number(casterLevel) || 1))
+    };
+  }
   const match = source.match(/^(\d+)?\s*(rounds?|rnds?|minutes?|mins?|hours?|hrs?|days?|weeks?|months?|years?|decades?|centur(?:y|ies)|millenn(?:ium|ia)|permanent|perm)(?:\s*\/\s*(?:level|lvl|lv|l))?/i);
   if (!match) return { source, label: source, seconds: null, supported: false };
   const perLevel = /(?:\/\s*(?:level|lvl|lv|l)|\bper\s+level)\b/i.test(source);
