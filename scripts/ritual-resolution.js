@@ -13,21 +13,32 @@ export class RitualResolution {
     return resolution?.success === true;
   }
 
-  static isProtectionsResistanceIII(spell = {}) {
+  static protectionsVariableSpell(spell = {}) {
     const spellName = String(spell?.spellName ?? spell?.name ?? "").trim().toLowerCase();
     const listName = String(spell?.spellListName ?? spell?.spellList ?? "").trim().toLowerCase();
-    return listName === "protections" && spellName === "resistance iii";
+    if (listName !== "protections") return null;
+    const displayName = String(spell?.spellName ?? spell?.name ?? spellName).trim();
+    const match = spellName.match(/^(prayer|bless|resistance) (i|iii|v)$/);
+    if (match) {
+      const tiers = { i: [5, 1], iii: [15, 3], v: [25, 5] };
+      const [totalBonus, maxTargets] = tiers[match[2]];
+      return { name: displayName, family: match[1], totalBonus, maxTargets };
+    }
+    if (["heat resistance", "cold resistance"].includes(spellName)) {
+      return { name: displayName, family: "conditional", totalBonus: 20, maxTargets: 1 };
+    }
+    return null;
   }
 
-  static distributeResistanceBonus(targetCount, total = 15) {
-    const count = Math.max(1, Math.min(3, Math.trunc(Number(targetCount) || 1)));
+  static distributeProtectionsBonus(targetCount, total = 15, maxTargets = 3) {
+    const count = Math.max(1, Math.min(maxTargets, Math.trunc(Number(targetCount) || 1)));
     const points = Math.max(0, Math.trunc(Number(total) || 0));
     const base = Math.floor(points / count);
     const remainder = points % count;
     return Array.from({ length: count }, (_, index) => base + (index < remainder ? 1 : 0));
   }
 
-  static protectionsResistanceEffects(value) {
+  static protectionsResistanceEffects(value, spellName = "Resistance") {
     const bonus = Math.max(0, Math.trunc(Number(value) || 0));
     const resistances = ["Channeling", "Essence", "Mentalism", "Physical", "Fear"];
     return [
@@ -37,7 +48,7 @@ export class RitualResolution {
         hint: `RMU.Resistance.${name}`,
         key: `system.resist.${name}.bonus`,
         value: bonus,
-        description: "Resistance III resistance-roll bonus"
+        description: `${spellName} resistance-roll bonus`
       })),
       {
         effect: "stat-bonus",
@@ -45,9 +56,45 @@ export class RitualResolution {
         hint: "RMU.Effects.DB",
         key: "system.defense.db.aura.bonus",
         value: bonus,
-        description: "Resistance III Defensive Bonus"
+        description: `${spellName} Defensive Bonus`
       }
     ];
+  }
+
+  static protectionsManeuverEffects(target, value, spellName = "Prayer") {
+    const bonus = Math.max(0, Math.trunc(Number(value) || 0));
+    const categories = new Set();
+    const combatTrainingSkills = [];
+    for (const item of target?.actor?.system?._skills ?? []) {
+      const skill = item?.system ?? item;
+      const category = String(skill?.category ?? "").trim();
+      const name = String(skill?.name ?? item?.name ?? "").trim();
+      const specialization = String(skill?.specialization ?? "").trim();
+      if (!category || !name) continue;
+      categories.add(category);
+      if (category === "Combat Training") combatTrainingSkills.push({ name, specialization });
+    }
+    const paths = new Set(Array.from(categories)
+      .filter(category => category !== "Combat Training")
+      .map(category => `system.skills.${category}.bonus`));
+    if (categories.has("Combat Training")) {
+      if (!categories.has("Melee Combat")) {
+        paths.add("system.skills.Combat Training.bonus");
+      } else {
+        const carried = new Set(["Unarmed", "Melee Weapons", "Shield"]);
+        for (const { name, specialization } of combatTrainingSkills) {
+          if (!carried.has(name)) paths.add(`system.skills.Combat Training.${name}${specialization ? `.${specialization}` : ""}.bonus`);
+        }
+      }
+    }
+    return Array.from(paths, key => ({
+      effect: "skill-bonus",
+      upgrade: true,
+      hint: "all maneuver rolls",
+      key,
+      value: bonus,
+      description: `${spellName} maneuver-roll bonus`
+    }));
   }
 
   static async roll(data, calculation) {
@@ -125,7 +172,12 @@ export class RitualResolution {
       const spells = Array.isArray(data.selectedSpells) ? data.selectedSpells : Object.values(data.selectedSpells ?? {});
       resolution.spellDurations = spells.map(spell => ({
         name: spell.spellName || spell.name || "Spell",
-        ...ritualSpellDuration(spell, data.parameterExtensions?.durationSteps, data.casterLevel)
+        ...ritualSpellDuration(
+          spell,
+          data.parameterExtensions?.durationSteps,
+          data.casterLevel,
+          data.parameterExtensions?.concentrationToRoundsPerLevel === true
+        )
       })).filter(entry => entry.label);
     }
     if (data.resistible) {
@@ -208,8 +260,9 @@ export class RitualResolution {
         ?? spell;
     }
     const sourceEffects = Array.isArray(spell.effects) ? spell.effects : [];
-    if (this.isProtectionsResistanceIII(spell)) {
-      return this.#applyProtectionsResistanceIII(data, spell, targets, origin);
+    const protectionsConfig = this.protectionsVariableSpell(spell);
+    if (protectionsConfig) {
+      return this.#applyProtectionsVariableSpell(data, spell, protectionsConfig, targets, origin);
     }
     if (!sourceEffects.length) return ui.notifications.warn(`${duration.name} has no automatic RMU effect data to apply.`);
 
@@ -269,8 +322,11 @@ export class RitualResolution {
     ui.notifications.info(`Created RMU effect application card${targets.length === 1 ? "" : "s"} for ${duration.name} (${duration.totalLabel}).`);
   }
 
-  static async #applyProtectionsResistanceIII(data, spell, targets, origin = null) {
-    if (targets.length > 3) return ui.notifications.warn("Resistance III can affect no more than three targets.");
+  static async #applyProtectionsVariableSpell(data, spell, config, targets, origin = null) {
+    if (targets.length > config.maxTargets) return ui.notifications.warn(`${config.name} can affect no more than ${config.maxTargets} target${config.maxTargets === 1 ? "" : "s"}.`);
+    if (config.family === "conditional") {
+      return ui.notifications.warn(`${config.name}'s bonuses only apply against ${config.name.startsWith("Heat") ? "heat" : "cold"}. RMU has no conditional resistance/DB Active Effect field, so this spell must be tracked manually.`);
+    }
 
     const primaryActor = this.#primaryActor(data);
     const casterToken = Array.from(canvas.tokens?.placeables ?? []).find(token => token.actor?.id === primaryActor?.id)
@@ -280,10 +336,10 @@ export class RitualResolution {
       return ui.notifications.warn("Place the primary caster's token on the active scene before applying ritual spell effects.");
     }
 
-    const choices = await this.#promptResistanceIIIApplication(targets);
+    const choices = await this.#promptProtectionsApplication(targets, config);
     if (!choices) return;
-    if (choices.bonuses.some(value => !Number.isInteger(value) || value < 1) || choices.bonuses.reduce((sum, value) => sum + value, 0) !== 15) {
-      return ui.notifications.warn("Resistance III bonuses must be positive whole numbers totaling 15.");
+    if (choices.bonuses.some(value => !Number.isInteger(value) || value < 1) || choices.bonuses.reduce((sum, value) => sum + value, 0) !== config.totalBonus) {
+      return ui.notifications.warn(`${config.name} bonuses must be positive whole numbers totaling ${config.totalBonus}.`);
     }
     if (choices.durationMode === "self" && targets.some(token => token.actor?.id !== primaryActor?.id)) {
       return ui.notifications.warn("The 1 minute per level duration is only available when the caster is the target.");
@@ -295,8 +351,18 @@ export class RitualResolution {
 
     for (let index = 0; index < targets.length; index += 1) {
       const target = targets[index];
-      const effects = this.protectionsResistanceEffects(choices.bonuses[index]).map(effect => {
-        const timed = { ...effect, name: "Resistance III" };
+      const bonus = choices.bonuses[index];
+      const resistanceEffects = ["prayer", "resistance"].includes(config.family)
+        ? this.protectionsResistanceEffects(bonus, config.name).filter(effect => config.family === "resistance" || !effect.key.includes("defense.db"))
+        : [];
+      const defensiveEffects = config.family === "bless"
+        ? this.protectionsResistanceEffects(bonus, config.name).filter(effect => effect.key.includes("defense.db"))
+        : [];
+      const maneuverEffects = ["prayer", "bless"].includes(config.family)
+        ? this.protectionsManeuverEffects(target, bonus, config.name)
+        : [];
+      const effects = [...resistanceEffects, ...defensiveEffects, ...maneuverEffects].map(effect => {
+        const timed = { ...effect, name: config.name };
         if (Number.isFinite(duration.seconds)) {
           timed.seconds = duration.seconds;
           timed.units = "seconds";
@@ -305,8 +371,8 @@ export class RitualResolution {
       });
       const nativeSpell = {
         ...foundry.utils.deepClone(spell),
-        name: "Resistance III",
-        _translatedName: "Resistance III",
+        name: config.name,
+        _translatedName: config.name,
         _translatedDescription: spell.description ?? "",
         spellType: spell.spellType ?? "U",
         effects,
@@ -329,7 +395,7 @@ export class RitualResolution {
       );
     }
 
-    ui.notifications.info(`Created RMU effect application card${targets.length === 1 ? "" : "s"} for Resistance III (${duration.totalLabel}).`);
+    ui.notifications.info(`Created RMU effect application card${targets.length === 1 ? "" : "s"} for ${config.name} (${duration.totalLabel}).`);
   }
 
   static #protectionsDuration(mode, data) {
@@ -349,17 +415,17 @@ export class RitualResolution {
     };
   }
 
-  static async #promptResistanceIIIApplication(targets) {
-    const defaults = this.distributeResistanceBonus(targets.length, 15);
+  static async #promptProtectionsApplication(targets, config) {
+    const defaults = this.distributeProtectionsBonus(targets.length, config.totalBonus, config.maxTargets);
     const escape = value => foundry.utils.escapeHTML?.(String(value ?? "")) ?? String(value ?? "");
     const rows = targets.map((token, index) => `
       <label style="display:grid;grid-template-columns:1fr 7em;gap:.5em;align-items:center;margin:.35em 0">
         <span>${escape(token.name ?? token.actor?.name ?? `Target ${index + 1}`)}</span>
-        <input type="number" name="bonus-${index}" min="1" max="15" step="1" value="${defaults[index]}">
+        <input type="number" name="bonus-${index}" min="1" max="${config.totalBonus}" step="1" value="${defaults[index]}">
       </label>`).join("");
     const content = `
       <form>
-        <p>Distribute Resistance III's total +15 bonus among the targeted tokens.</p>
+        <p>Distribute ${escape(config.name)}'s total +${config.totalBonus} bonus among the targeted tokens.</p>
         ${rows}
         <label style="display:grid;grid-template-columns:1fr 14em;gap:.5em;align-items:center;margin-top:.75em">
           <span>Prayer I duration condition</span>
@@ -373,7 +439,7 @@ export class RitualResolution {
 
     return new Promise(resolve => {
       new Dialog({
-        title: "Apply Resistance III",
+        title: `Apply ${config.name}`,
         content,
         buttons: {
           apply: {

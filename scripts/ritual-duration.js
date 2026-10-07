@@ -16,19 +16,30 @@ function unitIndex(text) {
   return units.findIndex(pattern => pattern.test(raw));
 }
 
-export function ritualSpellDuration(spell, steps = 0, casterLevel = 1) {
+export function ritualSpellDuration(spell, steps = 0, casterLevel = 1, concentrationToRoundsPerLevel = false) {
   const source = String(spell?.duration ?? "").trim();
   if (!source) return null;
   const spellName = String(spell?.spellName ?? spell?.name ?? "").trim().toLowerCase();
   const listName = String(spell?.spellListName ?? spell?.spellList ?? "").trim().toLowerCase();
-  if (source.toLowerCase() === "varies" && listName === "protections" && spellName === "resistance iii") {
+  const protectionsPrayerDuration = [
+    "prayer i", "prayer iii", "prayer v",
+    "bless i", "bless iii", "bless v",
+    "resistance i", "resistance iii", "resistance v",
+    "heat resistance", "cold resistance"
+  ].includes(spellName);
+  if (source.toLowerCase() === "varies" && listName === "protections" && protectionsPrayerDuration) {
+    const stationary = ritualSpellDuration({ duration: "10 min/lvl" }, steps, casterLevel);
+    const self = ritualSpellDuration({ duration: "1 min/lvl" }, steps, casterLevel);
+    const mobile = concentrationToRoundsPerLevel
+      ? ritualSpellDuration({ duration: "1 rnd/lvl" }, steps, casterLevel)
+      : { label: "Concentration", totalLabel: "Concentration" };
     return {
       source,
-      label: "Varies (Prayer I duration)",
+      label: `Varies: ${mobile.label} while mobile; ${stationary.label} while stationary; ${self.label} when cast on self`,
       totalLabel: "Choose when applying",
       seconds: null,
       supported: true,
-      choiceRequired: "protections-resistance-iii",
+      choiceRequired: "protections-prayer-duration",
       perLevel: true,
       level: Math.max(1, Math.trunc(Number(casterLevel) || 1))
     };

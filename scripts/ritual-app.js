@@ -207,7 +207,6 @@ export class RitualApp extends BaseApp {
       removeParticipant: RitualApp.#removeParticipant,
       calculate: RitualApp.#calculate,
       rollRitual: RitualApp.#rollRitual,
-      applySpell: RitualApp.#applySpell,
       saveTemplate: RitualApp.#saveTemplate,
       loadTemplate: RitualApp.#loadTemplate,
       deleteTemplate: RitualApp.#deleteTemplate,
@@ -860,11 +859,6 @@ export class RitualApp extends BaseApp {
     this.lastResolution.costApplication = await this.#applyRitualCosts(this.lastCalculation);
     await RitualResolution.sendChat(this.data, this.lastCalculation, this.lastResolution);
     this.render({ force: false });
-  }
-
-  static async #applySpell(event, target) {
-    if (!RitualResolution.canApplySpell(this.lastResolution)) return ui.notifications.warn("Only a Partial Success or better can apply a ritual spell.");
-    await RitualResolution.applySpellToTargets(this.data, this.lastResolution, Number(target.dataset.spellIndex));
   }
 
   async #applyRitualCosts(calculation) {
