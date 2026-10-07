@@ -277,12 +277,16 @@ export class RitualResolution {
     const timedEffects = sourceEffects.map(effect => {
       const timed = {
         ...foundry.utils.deepClone(effect),
-        name: duration.name,
-        seconds: duration.seconds,
-        units: "seconds"
+        name: duration.name
       };
       delete timed.rounds;
       delete timed.durationByCasterLevelBy;
+      delete timed.seconds;
+      delete timed.units;
+      if (Number.isFinite(duration.seconds)) {
+        timed.seconds = duration.seconds;
+        timed.units = "seconds";
+      }
       return timed;
     });
 
@@ -302,7 +306,11 @@ export class RitualResolution {
       spellType: spell.spellType ?? "U",
       effects: timedEffects,
       _castingLevel: Number(data.casterLevel ?? 1),
-      _modifiedDuration: { duration: duration.totalLabel, temporalFactor: 1 },
+      _modifiedDuration: {
+        duration: duration.totalLabel,
+        temporalFactor: 1,
+        hasConcentrate: duration.concentration === true
+      },
       _modifiedRange: { range: "target" }
     };
     const nativeResult = {

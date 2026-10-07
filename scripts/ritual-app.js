@@ -1,5 +1,6 @@
 import { MODULE_ID, RitualCalculator, RITUAL_CATEGORIES, REALMS, LIST_TYPES, KNOWLEDGE, TIME_TABLE, DURATION_LADDER } from "./ritual-calculator.js";
 import { RitualResolution } from "./ritual-resolution.js";
+import { ritualSpellDuration } from "./ritual-duration.js";
 import { RitualStorage } from "./ritual-storage.js";
 import { RitualActorAdapter } from "./actor-integration.js";
 
@@ -854,6 +855,20 @@ export class RitualApp extends BaseApp {
   static async #rollRitual() {
     this.#readForm();
     await this.#refreshSelectedSpellsForPrimary();
+    const spells = Array.isArray(this.data.selectedSpells) ? this.data.selectedSpells : Object.values(this.data.selectedSpells ?? {});
+    const invalidDuration = spells.map(spell => ({
+      spell,
+      duration: ritualSpellDuration(
+        spell,
+        this.data.parameterExtensions?.durationSteps,
+        this.data.casterLevel,
+        this.data.parameterExtensions?.concentrationToRoundsPerLevel === true
+      )
+    })).find(entry => entry.duration?.extensionRejected);
+    if (invalidDuration) {
+      const name = invalidDuration.spell?.spellName ?? invalidDuration.spell?.name ?? "Spell";
+      return ui.notifications.warn(`${name}: ${invalidDuration.duration.rejectionReason}`);
+    }
     this.lastCalculation = RitualCalculator.calculate(this.data, this.#settings());
     this.lastResolution = await RitualResolution.roll(this.data, this.lastCalculation);
     this.lastResolution.costApplication = await this.#applyRitualCosts(this.lastCalculation);
